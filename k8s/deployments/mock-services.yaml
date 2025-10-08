@@ -1,0 +1,222 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-services
+  namespace: actor-mesh
+  labels:
+    app: actor-mesh-demo
+    component: mock-services
+    version: v1.0.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: actor-mesh-demo
+      component: mock-services
+  template:
+    metadata:
+      labels:
+        app: actor-mesh-demo
+        component: mock-services
+        version: v1.0.0
+    spec:
+      containers:
+        - name: mock-services
+          image: actor-mesh/actor-mesh-demo:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8001
+              name: customer-api
+            - containerPort: 8002
+              name: orders-api
+            - containerPort: 8003
+              name: tracking-api
+          command:
+            - "python"
+            - "-c"
+            - |
+              import asyncio
+              import sys
+              import os
+
+              # Add current directory to path
+              sys.path.insert(0, '/app')
+
+              async def start_services():
+                  from mock_services.customer_api import create_customer_api
+                  from mock_services.orders_api import create_orders_api
+                  from mock_services.tracking_api import create_tracking_api
+                  import uvicorn
+
+                  # Start services on different ports
+                  tasks = []
+
+                  # Customer API on port 8001
+                  customer_config = uvicorn.Config(
+                      create_customer_api(),
+                      host='0.0.0.0',
+                      port=8001,
+                      log_level='info'
+                  )
+                  customer_server = uvicorn.Server(customer_config)
+                  tasks.append(customer_server.serve())
+
+                  # Orders API on port 8002
+                  orders_config = uvicorn.Config(
+                      create_orders_api(),
+                      host='0.0.0.0',
+                      port=8002,
+                      log_level='info'
+                  )
+                  orders_server = uvicorn.Server(orders_config)
+                  tasks.append(orders_server.serve())
+
+                  # Tracking API on port 8003
+                  tracking_config = uvicorn.Config(
+                      create_tracking_api(),
+                      host='0.0.0.0',
+                      port=8003,
+                      log_level='info'
+                  )
+                  tracking_server = uvicorn.Server(tracking_config)
+                  tasks.append(tracking_server.serve())
+
+                  # Run all services concurrently
+                  await asyncio.gather(*tasks)
+
+              if __name__ == '__main__':
+                  asyncio.run(start_services())
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          envFrom:
+            - configMapRef:
+                name: app-config
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 30
+            timeoutSeconds: 10
+            periodSeconds: 30
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 10
+            timeoutSeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "300m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        fsGroup: 1000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-services
+  namespace: actor-mesh
+  labels:
+    app: actor-mesh-demo
+    component: mock-services
+    version: v1.0.0
+spec:
+  selector:
+    app: actor-mesh-demo
+    component: mock-services
+  ports:
+    - name: customer-api
+      port: 8001
+      targetPort: 8001
+      protocol: TCP
+    - name: orders-api
+      port: 8002
+      targetPort: 8002
+      protocol: TCP
+    - name: tracking-api
+      port: 8003
+      targetPort: 8003
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: customer-api
+  namespace: actor-mesh
+  labels:
+    app: actor-mesh-demo
+    component: customer-api
+    version: v1.0.0
+spec:
+  selector:
+    app: actor-mesh-demo
+    component: mock-services
+  ports:
+    - name: http
+      port: 8001
+      targetPort: 8001
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders-api
+  namespace: actor-mesh
+  labels:
+    app: actor-mesh-demo
+    component: orders-api
+    version: v1.0.0
+spec:
+  selector:
+    app: actor-mesh-demo
+    component: mock-services
+  ports:
+    - name: http
+      port: 8002
+      targetPort: 8002
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tracking-api
+  namespace: actor-mesh
+  labels:
+    app: actor-mesh-demo
+    component: tracking-api
+    version: v1.0.0
+spec:
+  selector:
+    app: actor-mesh-demo
+    component: mock-services
+  ports:
+    - name: http
+      port: 8003
+      targetPort: 8003
+      protocol: TCP
+  type: ClusterIP

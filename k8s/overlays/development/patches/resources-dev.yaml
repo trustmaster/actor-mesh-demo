@@ -1,0 +1,233 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sentiment-analyzer
+  namespace: actor-mesh
+spec:
+  template:
+    spec:
+      containers:
+      - name: sentiment-analyzer
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "25m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        env:
+        - name: LOG_LEVEL
+          value: DEBUG
+        - name: CACHE_DISABLED
+          value: "true"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: intent-analyzer
+  namespace: actor-mesh
+spec:
+  template:
+    spec:
+      containers:
+      - name: intent-analyzer
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        env:
+        - name: LOG_LEVEL
+          value: DEBUG
+        - name: MOCK_LLM_RESPONSES
+          value: "true"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: context-retriever
+  namespace: actor-mesh
+spec:
+  template:
+    spec:
+      containers:
+      - name: context-retriever
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "25m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        env:
+        - name: LOG_LEVEL
+          value: DEBUG
+        - name: CACHE_TTL
+          value: "60"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: response-generator
+  namespace: actor-mesh
+spec:
+  template:
+    spec:
+      containers:
+      - name: response-generator
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        env:
+        - name: LOG_LEVEL
+          value: DEBUG
+        - name: MOCK_LLM_RESPONSES
+          value: "true"
+        - name: RESPONSE_TEMPERATURE
+          value: "0.1"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: guardrail-validator
+  namespace: actor-mesh
+spec:
+  template:
+    spec:
+      containers:
+      - name: guardrail-validator
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "25m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        env:
+        - name: LOG_LEVEL
+          value: DEBUG
+        - name: STRICT_VALIDATION
+          value: "false"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: execution-coordinator
+  namespace: actor-mesh
+spec:
+  template:
+    spec:
+      containers:
+      - name: execution-coordinator
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "25m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        env:
+        - name: LOG_LEVEL
+          value: DEBUG
+        - name: DRY_RUN_MODE
+          value: "true"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: decision-router
+  namespace: actor-mesh
+spec:
+  template:
+    spec:
+      containers:
+      - name: decision-router
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "25m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        env:
+        - name: LOG_LEVEL
+          value: DEBUG
+        - name: ROUTING_TIMEOUT
+          value: "10"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: escalation-router
+  namespace: actor-mesh
+spec:
+  template:
+    spec:
+      containers:
+      - name: escalation-router
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "25m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        env:
+        - name: LOG_LEVEL
+          value: DEBUG
+        - name: AUTO_ESCALATE_THRESHOLD
+          value: "0.3"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: response-aggregator
+  namespace: actor-mesh
+spec:
+  template:
+    spec:
+      containers:
+      - name: response-aggregator
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "25m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        env:
+        - name: LOG_LEVEL
+          value: DEBUG
+        - name: AGGREGATION_TIMEOUT
+          value: "15"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-services
+  namespace: actor-mesh
+spec:
+  template:
+    spec:
+      containers:
+      - name: mock-services
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        env:
+        - name: LOG_LEVEL
+          value: DEBUG
+        - name: MOCK_LATENCY
+          value: "100"
+        - name: ENABLE_CHAOS_TESTING
+          value: "false"

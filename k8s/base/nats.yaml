@@ -1,0 +1,184 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+  namespace: actor-mesh
+  labels:
+    app: nats
+    component: messaging
+    version: v2.10.0
+spec:
+  selector:
+    app: nats
+  ports:
+    - name: client
+      port: 4222
+      targetPort: 4222
+      protocol: TCP
+    - name: monitoring
+      port: 8222
+      targetPort: 8222
+      protocol: TCP
+    - name: routing
+      port: 6222
+      targetPort: 6222
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nats
+  namespace: actor-mesh
+  labels:
+    app: nats
+    component: messaging
+    version: v2.10.0
+spec:
+  serviceName: nats
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nats
+  template:
+    metadata:
+      labels:
+        app: nats
+        component: messaging
+        version: v2.10.0
+    spec:
+      containers:
+      - name: nats
+        image: nats:2.10-alpine
+        ports:
+        - containerPort: 4222
+          name: client
+        - containerPort: 8222
+          name: monitoring
+        - containerPort: 6222
+          name: routing
+        command:
+        - "nats-server"
+        - "--config"
+        - "/etc/nats-config/nats.conf"
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/nats-config
+        - name: nats-storage
+          mountPath: /data
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8222
+          initialDelaySeconds: 10
+          timeoutSeconds: 5
+          periodSeconds: 30
+          successThreshold: 1
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8222
+          initialDelaySeconds: 10
+          timeoutSeconds: 5
+          periodSeconds: 10
+          successThreshold: 1
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: config-volume
+        configMap:
+          name: nats-config
+  volumeClaimTemplates:
+  - metadata:
+      name: nats-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nats-config
+  namespace: actor-mesh
+  labels:
+    app: nats
+    component: config
+data:
+  nats.conf: |
+    # NATS Server Configuration for Actor Mesh Demo
+
+    # Basic Configuration
+    server_name: $POD_NAME
+
+    # Network Configuration
+    host: "0.0.0.0"
+    port: 4222
+
+    # HTTP Monitoring
+    http_port: 8222
+
+    # JetStream Configuration
+    jetstream {
+      # Store directory
+      store_dir: "/data"
+
+      # Memory and file store limits
+      max_memory_store: 1GB
+      max_file_store: 10GB
+
+      # Domain (optional, for multi-tenant setups)
+      # domain: "actor-mesh"
+    }
+
+    # Logging Configuration
+    log_time: true
+    debug: false
+    trace: false
+    logtime: true
+
+    # Client Configuration
+    max_connections: 1000
+    max_subscriptions: 1000
+    max_payload: 1MB
+
+    # Timeouts
+    ping_interval: 2m
+    ping_max: 2
+    write_deadline: "10s"
+
+    # Account and User Configuration (for production)
+    # accounts {
+    #   actor_mesh {
+    #     users: [
+    #       { user: "gateway", password: "$GATEWAY_PASSWORD" }
+    #       { user: "actors", password: "$ACTORS_PASSWORD" }
+    #     ]
+    #     jetstream: enabled
+    #   }
+    # }
+
+    # TLS Configuration (uncomment for production)
+    # tls {
+    #   cert_file: "/etc/nats-certs/tls.crt"
+    #   key_file: "/etc/nats-certs/tls.key"
+    #   ca_file: "/etc/nats-certs/ca.crt"
+    #   verify: true
+    # }

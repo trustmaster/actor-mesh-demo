@@ -1,0 +1,14 @@
+mirrors:
+  "actor-mesh-registry:5000":
+    endpoint:
+      - http://actor-mesh-registry:5000
+  "localhost:5001":
+    endpoint:
+      - http://actor-mesh-registry:5000
+configs:
+  "actor-mesh-registry:5000":
+    tls:
+      insecure_skip_verify: true
+  "localhost:5001":
+    tls:
+      insecure_skip_verify: true

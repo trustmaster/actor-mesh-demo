@@ -1,0 +1,354 @@
+# Docker Compose configuration for E-commerce Support Agent Actor Mesh Demo
+# This provides a complete local development environment with all services
+
+version: '3.8'
+
+services:
+  # Infrastructure Services
+  nats:
+    image: nats:2.10-alpine
+    container_name: actor-mesh-nats
+    ports:
+      - "4222:4222"  # Client connections
+      - "8222:8222"  # HTTP monitoring
+      - "6222:6222"  # Routing
+    command:
+      - "--jetstream"
+      - "--store_dir=/data"
+      - "--http_port=8222"
+      - "--max_memory_store=1GB"
+      - "--max_file_store=10GB"
+    volumes:
+      - nats_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8222"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - actor-mesh
+
+  redis:
+    image: redis:7-alpine
+    container_name: actor-mesh-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - actor-mesh
+
+  # Application Services
+  gateway:
+    build:
+      context: .
+      target: gateway
+    container_name: actor-mesh-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      - NATS_URL=nats://nats:4222
+      - REDIS_URL=redis://redis:6379
+      - CUSTOMER_API_URL=http://mock-services:8001
+      - ORDERS_API_URL=http://mock-services:8002
+      - TRACKING_API_URL=http://mock-services:8003
+      - SQLITE_DB_PATH=/app/data/conversations.db
+      - LOG_LEVEL=INFO
+      - LITELLM_MODEL=gpt-3.5-turbo
+      - SENTIMENT_CONFIDENCE_THRESHOLD=0.7
+      - INTENT_TIMEOUT=30
+      - RESPONSE_TEMPERATURE=0.3
+      - USE_LLM_VALIDATION=true
+    volumes:
+      - app_data:/app/data
+      - app_logs:/app/logs
+    depends_on:
+      nats:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mock-services:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - actor-mesh
+    restart: unless-stopped
+
+  # Mock Services
+  mock-services:
+    build:
+      context: .
+      target: mock-services
+    container_name: actor-mesh-mock-services
+    ports:
+      - "8001:8001"
+      - "8002:8002"
+      - "8003:8003"
+    environment:
+      - LOG_LEVEL=INFO
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8001/health && curl -f http://localhost:8002/health && curl -f http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - actor-mesh
+    restart: unless-stopped
+
+  # Individual Actor Services
+  sentiment-analyzer:
+    build:
+      context: .
+      target: actor
+    container_name: actor-mesh-sentiment-analyzer
+    environment:
+      - NATS_URL=nats://nats:4222
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=INFO
+      - SENTIMENT_CONFIDENCE_THRESHOLD=0.7
+    command: ["python", "-m", "actors.sentiment_analyzer"]
+    depends_on:
+      nats:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - actor-mesh
+    restart: unless-stopped
+
+  intent-analyzer:
+    build:
+      context: .
+      target: actor
+    container_name: actor-mesh-intent-analyzer
+    environment:
+      - NATS_URL=nats://nats:4222
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=INFO
+      - LITELLM_MODEL=gpt-3.5-turbo
+      - INTENT_TIMEOUT=30
+    command: ["python", "-m", "actors.intent_analyzer"]
+    depends_on:
+      nats:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - actor-mesh
+    restart: unless-stopped
+
+  context-retriever:
+    build:
+      context: .
+      target: actor
+    container_name: actor-mesh-context-retriever
+    environment:
+      - NATS_URL=nats://nats:4222
+      - REDIS_URL=redis://redis:6379
+      - CUSTOMER_API_URL=http://mock-services:8001
+      - ORDERS_API_URL=http://mock-services:8002
+      - TRACKING_API_URL=http://mock-services:8003
+      - LOG_LEVEL=INFO
+    command: ["python", "-m", "actors.context_retriever"]
+    depends_on:
+      nats:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mock-services:
+        condition: service_healthy
+    networks:
+      - actor-mesh
+    restart: unless-stopped
+
+  response-generator:
+    build:
+      context: .
+      target: actor
+    container_name: actor-mesh-response-generator
+    environment:
+      - NATS_URL=nats://nats:4222
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=INFO
+      - LITELLM_MODEL=gpt-3.5-turbo
+      - RESPONSE_TEMPERATURE=0.3
+    command: ["python", "-m", "actors.response_generator"]
+    depends_on:
+      nats:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - actor-mesh
+    restart: unless-stopped
+
+  guardrail-validator:
+    build:
+      context: .
+      target: actor
+    container_name: actor-mesh-guardrail-validator
+    environment:
+      - NATS_URL=nats://nats:4222
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=INFO
+      - USE_LLM_VALIDATION=true
+    command: ["python", "-m", "actors.guardrail_validator"]
+    depends_on:
+      nats:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - actor-mesh
+    restart: unless-stopped
+
+  execution-coordinator:
+    build:
+      context: .
+      target: actor
+    container_name: actor-mesh-execution-coordinator
+    environment:
+      - NATS_URL=nats://nats:4222
+      - REDIS_URL=redis://redis:6379
+      - CUSTOMER_API_URL=http://mock-services:8001
+      - ORDERS_API_URL=http://mock-services:8002
+      - TRACKING_API_URL=http://mock-services:8003
+      - LOG_LEVEL=INFO
+    command: ["python", "-m", "actors.execution_coordinator"]
+    depends_on:
+      nats:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mock-services:
+        condition: service_healthy
+    networks:
+      - actor-mesh
+    restart: unless-stopped
+
+  decision-router:
+    build:
+      context: .
+      target: actor
+    container_name: actor-mesh-decision-router
+    environment:
+      - NATS_URL=nats://nats:4222
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=INFO
+    command: ["python", "-m", "actors.decision_router"]
+    depends_on:
+      nats:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - actor-mesh
+    restart: unless-stopped
+
+  escalation-router:
+    build:
+      context: .
+      target: actor
+    container_name: actor-mesh-escalation-router
+    environment:
+      - NATS_URL=nats://nats:4222
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=INFO
+    command: ["python", "-m", "actors.escalation_router"]
+    depends_on:
+      nats:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - actor-mesh
+    restart: unless-stopped
+
+  response-aggregator:
+    build:
+      context: .
+      target: actor
+    container_name: actor-mesh-response-aggregator
+    environment:
+      - NATS_URL=nats://nats:4222
+      - REDIS_URL=redis://redis:6379
+      - SQLITE_DB_PATH=/app/data/conversations.db
+      - LOG_LEVEL=INFO
+    command: ["python", "-m", "actors.response_aggregator"]
+    volumes:
+      - app_data:/app/data
+    depends_on:
+      nats:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - actor-mesh
+    restart: unless-stopped
+
+  # Development/Testing Services
+  all-in-one:
+    build:
+      context: .
+      target: allinone
+    container_name: actor-mesh-allinone
+    ports:
+      - "9000:8000"  # Different port to avoid conflicts
+      - "9001:8001"
+      - "9002:8002"
+      - "9003:8003"
+    environment:
+      - NATS_URL=nats://nats:4222
+      - REDIS_URL=redis://redis:6379
+      - CUSTOMER_API_URL=http://localhost:8001
+      - ORDERS_API_URL=http://localhost:8002
+      - TRACKING_API_URL=http://localhost:8003
+      - SQLITE_DB_PATH=/app/data/conversations.db
+      - LOG_LEVEL=INFO
+      - LITELLM_MODEL=gpt-3.5-turbo
+    volumes:
+      - app_data_allinone:/app/data
+      - app_logs_allinone:/app/logs
+    depends_on:
+      nats:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - actor-mesh
+    profiles:
+      - allinone
+    restart: unless-stopped
+
+volumes:
+  nats_data:
+    name: actor-mesh-nats-data
+  redis_data:
+    name: actor-mesh-redis-data
+  app_data:
+    name: actor-mesh-app-data
+  app_logs:
+    name: actor-mesh-app-logs
+  app_data_allinone:
+    name: actor-mesh-app-data-allinone
+  app_logs_allinone:
+    name: actor-mesh-app-logs-allinone
+
+networks:
+  actor-mesh:
+    name: actor-mesh-network
+    driver: bridge

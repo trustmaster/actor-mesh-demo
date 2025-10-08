@@ -1,0 +1,465 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sentiment-analyzer
+  namespace: actor-mesh
+  labels:
+    app: actor-mesh-demo
+    component: sentiment-analyzer
+    version: v1.0.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: actor-mesh-demo
+      component: sentiment-analyzer
+  template:
+    metadata:
+      labels:
+        app: actor-mesh-demo
+        component: sentiment-analyzer
+        version: v1.0.0
+    spec:
+      containers:
+        - name: sentiment-analyzer
+          image: actor-mesh/actor-mesh-demo:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "actors.sentiment_analyzer"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+                optional: true
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+      restartPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: intent-analyzer
+  namespace: actor-mesh
+  labels:
+    app: actor-mesh-demo
+    component: intent-analyzer
+    version: v1.0.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: actor-mesh-demo
+      component: intent-analyzer
+  template:
+    metadata:
+      labels:
+        app: actor-mesh-demo
+        component: intent-analyzer
+        version: v1.0.0
+    spec:
+      containers:
+        - name: intent-analyzer
+          image: actor-mesh/actor-mesh-demo:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "actors.intent_analyzer"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+                optional: true
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+      restartPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: context-retriever
+  namespace: actor-mesh
+  labels:
+    app: actor-mesh-demo
+    component: context-retriever
+    version: v1.0.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: actor-mesh-demo
+      component: context-retriever
+  template:
+    metadata:
+      labels:
+        app: actor-mesh-demo
+        component: context-retriever
+        version: v1.0.0
+    spec:
+      containers:
+        - name: context-retriever
+          image: actor-mesh/actor-mesh-demo:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "actors.context_retriever"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+                optional: true
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+      restartPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: response-generator
+  namespace: actor-mesh
+  labels:
+    app: actor-mesh-demo
+    component: response-generator
+    version: v1.0.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: actor-mesh-demo
+      component: response-generator
+  template:
+    metadata:
+      labels:
+        app: actor-mesh-demo
+        component: response-generator
+        version: v1.0.0
+    spec:
+      containers:
+        - name: response-generator
+          image: actor-mesh/actor-mesh-demo:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "actors.response_generator"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+                optional: true
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+      restartPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: guardrail-validator
+  namespace: actor-mesh
+  labels:
+    app: actor-mesh-demo
+    component: guardrail-validator
+    version: v1.0.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: actor-mesh-demo
+      component: guardrail-validator
+  template:
+    metadata:
+      labels:
+        app: actor-mesh-demo
+        component: guardrail-validator
+        version: v1.0.0
+    spec:
+      containers:
+        - name: guardrail-validator
+          image: actor-mesh/actor-mesh-demo:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "actors.guardrail_validator"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+                optional: true
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+      restartPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: execution-coordinator
+  namespace: actor-mesh
+  labels:
+    app: actor-mesh-demo
+    component: execution-coordinator
+    version: v1.0.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: actor-mesh-demo
+      component: execution-coordinator
+  template:
+    metadata:
+      labels:
+        app: actor-mesh-demo
+        component: execution-coordinator
+        version: v1.0.0
+    spec:
+      containers:
+        - name: execution-coordinator
+          image: actor-mesh/actor-mesh-demo:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "actors.execution_coordinator"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+                optional: true
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+      restartPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: decision-router
+  namespace: actor-mesh
+  labels:
+    app: actor-mesh-demo
+    component: decision-router
+    version: v1.0.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: actor-mesh-demo
+      component: decision-router
+  template:
+    metadata:
+      labels:
+        app: actor-mesh-demo
+        component: decision-router
+        version: v1.0.0
+    spec:
+      containers:
+        - name: decision-router
+          image: actor-mesh/actor-mesh-demo:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "actors.decision_router"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+                optional: true
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+      restartPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: escalation-router
+  namespace: actor-mesh
+  labels:
+    app: actor-mesh-demo
+    component: escalation-router
+    version: v1.0.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: actor-mesh-demo
+      component: escalation-router
+  template:
+    metadata:
+      labels:
+        app: actor-mesh-demo
+        component: escalation-router
+        version: v1.0.0
+    spec:
+      containers:
+        - name: escalation-router
+          image: actor-mesh/actor-mesh-demo:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "actors.escalation_router"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+                optional: true
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+      restartPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: response-aggregator
+  namespace: actor-mesh
+  labels:
+    app: actor-mesh-demo
+    component: response-aggregator
+    version: v1.0.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: actor-mesh-demo
+      component: response-aggregator
+  template:
+    metadata:
+      labels:
+        app: actor-mesh-demo
+        component: response-aggregator
+        version: v1.0.0
+    spec:
+      containers:
+        - name: response-aggregator
+          image: actor-mesh/actor-mesh-demo:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "actors.response_aggregator"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+                optional: true
+          volumeMounts:
+            - name: app-data
+              mountPath: /app/data
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+      volumes:
+        - name: app-data
+          persistentVolumeClaim:
+            claimName: app-data-pvc
+      restartPolicy: Always

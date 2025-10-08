@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: actor-mesh
+  labels:
+    app: actor-mesh-demo
+    component: namespace
+    version: v1.0.0
+    managed-by: actor-mesh-demo
+  annotations:
+    description: "Namespace for E-commerce Support Agent Actor Mesh Demo"
+    contact: "demo@actormesh.com"
+    documentation: "https://github.com/actormesh/actor-mesh-demo"

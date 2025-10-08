@@ -1,0 +1,241 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: actor-mesh-production
+  annotations:
+    config.kubernetes.io/local-config: "true"
+
+resources:
+  - ../../base
+
+namePrefix: "prod-"
+
+commonLabels:
+  environment: production
+  tier: production
+
+commonAnnotations:
+  environment: production
+  deployment.kubernetes.io/revision: "1"
+  monitoring.coreos.com/enabled: "true"
+
+images:
+  - name: actor-mesh/actor-mesh-demo
+    newName: registry.example.com/actor-mesh/actor-mesh-demo
+    newTag: v1.0.0
+
+configMapGenerator:
+  - name: prod-config
+    namespace: actor-mesh
+    literals:
+      - LOG_LEVEL=INFO
+      - ENABLE_METRICS=true
+      - ENABLE_TRACING=true
+      - ENABLE_DEBUG_ENDPOINTS=false
+      - RATE_LIMIT_REQUESTS=1000
+      - CACHE_TTL=3600
+      - REQUEST_TIMEOUT=60
+      - MOCK_EXTERNAL_SERVICES=false
+      - MAX_CONCURRENT_REQUESTS=200
+      - HEALTH_CHECK_INTERVAL=30
+      - ACTOR_POOL_SIZE=10
+      - CONNECTION_POOL_SIZE=20
+      - GRACEFUL_SHUTDOWN_TIMEOUT=30
+    behavior: merge
+
+secretGenerator:
+  - name: prod-secrets
+    namespace: actor-mesh
+    type: Opaque
+    files:
+      - secrets/openai-api-key.txt
+      - secrets/anthropic-api-key.txt
+      - secrets/jwt-secret.txt
+      - secrets/database-credentials.txt
+    options:
+      disableNameSuffixHash: true
+
+patchesStrategicMerge:
+  - patches/gateway-prod.yaml
+  - patches/resources-prod.yaml
+  - patches/security-prod.yaml
+  - patches/monitoring-prod.yaml
+
+patches:
+  # Production environment configuration
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: ENVIRONMENT
+          value: production
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: DEBUG
+          value: "false"
+
+  # Enable security contexts for all deployments
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+    patch: |-
+      - op: add
+        path: /spec/template/spec/securityContext
+        value:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+          seccompProfile:
+            type: RuntimeDefault
+      - op: add
+        path: /spec/template/spec/containers/0/securityContext
+        value:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - NET_BIND_SERVICE
+
+  # Add resource limits and requests for production
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: gateway
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            memory: "512Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+
+  # Add production monitoring annotations
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+    patch: |-
+      - op: add
+        path: /spec/template/metadata/annotations/prometheus.io~1scrape
+        value: "true"
+      - op: add
+        path: /spec/template/metadata/annotations/prometheus.io~1port
+        value: "8080"
+      - op: add
+        path: /spec/template/metadata/annotations/prometheus.io~1path
+        value: "/metrics"
+
+  # Add pod disruption budgets
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: gateway
+    patch: |-
+      - op: add
+        path: /spec/template/spec/affinity
+        value:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                  - key: component
+                    operator: In
+                    values:
+                    - gateway
+                topologyKey: kubernetes.io/hostname
+
+  # Add production-grade health checks
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/livenessProbe/initialDelaySeconds
+        value: 60
+      - op: replace
+        path: /spec/template/spec/containers/0/livenessProbe/periodSeconds
+        value: 30
+      - op: replace
+        path: /spec/template/spec/containers/0/livenessProbe/timeoutSeconds
+        value: 10
+      - op: replace
+        path: /spec/template/spec/containers/0/livenessProbe/failureThreshold
+        value: 3
+      - op: replace
+        path: /spec/template/spec/containers/0/readinessProbe/initialDelaySeconds
+        value: 30
+      - op: replace
+        path: /spec/template/spec/containers/0/readinessProbe/periodSeconds
+        value: 10
+      - op: replace
+        path: /spec/template/spec/containers/0/readinessProbe/timeoutSeconds
+        value: 5
+      - op: replace
+        path: /spec/template/spec/containers/0/readinessProbe/failureThreshold
+        value: 3
+
+replicas:
+  - name: gateway
+    count: 3
+  - name: sentiment-analyzer
+    count: 2
+  - name: intent-analyzer
+    count: 2
+  - name: context-retriever
+    count: 2
+  - name: response-generator
+    count: 2
+  - name: guardrail-validator
+    count: 2
+  - name: execution-coordinator
+    count: 2
+  - name: decision-router
+    count: 2
+  - name: escalation-router
+    count: 2
+  - name: response-aggregator
+    count: 2
+  - name: mock-services
+    count: 1
+
+# Production-specific transformations
+transformers:
+  - transformers/prod-transformer.yaml
+
+# Replace image pull policy
+replacements:
+  - source:
+      kind: ConfigMap
+      name: prod-config
+      fieldPath: data.IMAGE_PULL_POLICY
+    targets:
+      - select:
+          group: apps
+          version: v1
+          kind: Deployment
+        fieldPaths:
+          - spec.template.spec.containers.[name=*].imagePullPolicy
+    options:
+      delimiter: "="
+      index: 1

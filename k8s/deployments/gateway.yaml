@@ -1,0 +1,404 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: actor-mesh
+  labels:
+    app: actor-mesh-demo
+    component: gateway
+    version: v1.0.0
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: actor-mesh-demo
+      component: gateway
+  template:
+    metadata:
+      labels:
+        app: actor-mesh-demo
+        component: gateway
+        version: v1.0.0
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: gateway
+          image: actor-mesh/actor-mesh-demo:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+                optional: true
+          volumeMounts:
+            - name: app-data
+              mountPath: /app/data
+            - name: app-logs
+              mountPath: /app/logs
+            - name: web-assets
+              mountPath: /app/web
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 30
+            timeoutSeconds: 10
+            periodSeconds: 30
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 10
+            timeoutSeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: app-data
+          persistentVolumeClaim:
+            claimName: app-data-pvc
+        - name: app-logs
+          emptyDir: {}
+        - name: web-assets
+          configMap:
+            name: web-assets
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        fsGroup: 1000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: actor-mesh
+  labels:
+    app: actor-mesh-demo
+    component: gateway
+    version: v1.0.0
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+spec:
+  selector:
+    app: actor-mesh-demo
+    component: gateway
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+      protocol: TCP
+    - name: https
+      port: 443
+      targetPort: 8000
+      protocol: TCP
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway-internal
+  namespace: actor-mesh
+  labels:
+    app: actor-mesh-demo
+    component: gateway
+    version: v1.0.0
+spec:
+  selector:
+    app: actor-mesh-demo
+    component: gateway
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: app-data-pvc
+  namespace: actor-mesh
+  labels:
+    app: actor-mesh-demo
+    component: storage
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-assets
+  namespace: actor-mesh
+  labels:
+    app: actor-mesh-demo
+    component: web-assets
+data:
+  widget.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>E-commerce Support Chat</title>
+        <style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                margin: 0;
+                padding: 20px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+            }
+            .chat-container {
+                max-width: 800px;
+                margin: 0 auto;
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+                overflow: hidden;
+            }
+            .chat-header {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 20px;
+                text-align: center;
+            }
+            .chat-messages {
+                height: 400px;
+                overflow-y: auto;
+                padding: 20px;
+                background: #f8f9fa;
+            }
+            .message {
+                margin: 10px 0;
+                padding: 12px 16px;
+                border-radius: 18px;
+                max-width: 70%;
+                word-wrap: break-word;
+            }
+            .user-message {
+                background: #007bff;
+                color: white;
+                margin-left: auto;
+                text-align: right;
+            }
+            .bot-message {
+                background: white;
+                color: #333;
+                border: 1px solid #e9ecef;
+            }
+            .chat-input {
+                display: flex;
+                padding: 20px;
+                background: white;
+                border-top: 1px solid #e9ecef;
+            }
+            .chat-input input {
+                flex: 1;
+                padding: 12px 16px;
+                border: 1px solid #ddd;
+                border-radius: 25px;
+                outline: none;
+                font-size: 14px;
+            }
+            .chat-input button {
+                margin-left: 10px;
+                padding: 12px 24px;
+                background: #007bff;
+                color: white;
+                border: none;
+                border-radius: 25px;
+                cursor: pointer;
+                font-size: 14px;
+                transition: background 0.3s;
+            }
+            .chat-input button:hover {
+                background: #0056b3;
+            }
+            .typing-indicator {
+                display: none;
+                padding: 12px 16px;
+                color: #666;
+                font-style: italic;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="chat-container">
+            <div class="chat-header">
+                <h1>🛍️ E-commerce Support</h1>
+                <p>How can we help you today?</p>
+            </div>
+            <div class="chat-messages" id="messages">
+                <div class="message bot-message">
+                    Hello! I'm your AI support assistant. I can help you with orders, deliveries, and general questions. What can I help you with today?
+                </div>
+            </div>
+            <div class="typing-indicator" id="typing">
+                AI is typing...
+            </div>
+            <div class="chat-input">
+                <input type="text" id="messageInput" placeholder="Type your message..." autocomplete="off">
+                <button onclick="sendMessage()">Send</button>
+            </div>
+        </div>
+
+        <script>
+            let sessionId = null;
+            let ws = null;
+
+            // Initialize WebSocket connection
+            function initWebSocket() {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+                ws = new WebSocket(wsUrl);
+
+                ws.onopen = function(event) {
+                    console.log('WebSocket connected');
+                };
+
+                ws.onmessage = function(event) {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'response') {
+                        addMessage(data.response, 'bot');
+                        sessionId = data.session_id;
+                        hideTyping();
+                    }
+                };
+
+                ws.onclose = function(event) {
+                    console.log('WebSocket disconnected');
+                    setTimeout(initWebSocket, 1000); // Reconnect after 1 second
+                };
+
+                ws.onerror = function(error) {
+                    console.error('WebSocket error:', error);
+                };
+            }
+
+            function sendMessage() {
+                const input = document.getElementById('messageInput');
+                const message = input.value.trim();
+
+                if (!message) return;
+
+                addMessage(message, 'user');
+                input.value = '';
+                showTyping();
+
+                const payload = {
+                    type: 'message',
+                    message: message,
+                    customer_email: 'demo@example.com',
+                    session_id: sessionId
+                };
+
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify(payload));
+                } else {
+                    // Fallback to HTTP API
+                    sendMessageHTTP(message);
+                }
+            }
+
+            async function sendMessageHTTP(message) {
+                try {
+                    const response = await fetch('/api/chat', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            message: message,
+                            customer_email: 'demo@example.com',
+                            session_id: sessionId
+                        })
+                    });
+
+                    const data = await response.json();
+                    addMessage(data.response, 'bot');
+                    sessionId = data.session_id;
+                    hideTyping();
+                } catch (error) {
+                    console.error('Error sending message:', error);
+                    addMessage('Sorry, I encountered an error. Please try again.', 'bot');
+                    hideTyping();
+                }
+            }
+
+            function addMessage(text, sender) {
+                const messagesContainer = document.getElementById('messages');
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message ${sender}-message`;
+                messageDiv.textContent = text;
+                messagesContainer.appendChild(messageDiv);
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }
+
+            function showTyping() {
+                document.getElementById('typing').style.display = 'block';
+            }
+
+            function hideTyping() {
+                document.getElementById('typing').style.display = 'none';
+            }
+
+            // Handle Enter key in input
+            document.getElementById('messageInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+
+            // Initialize WebSocket connection on page load
+            window.onload = function() {
+                initWebSocket();
+            };
+        </script>
+    </body>
+    </html>

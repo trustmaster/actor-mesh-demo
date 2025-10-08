@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: actor-mesh
+  labels:
+    app: actor-mesh-demo
+    component: config
+    version: v1.0.0
+data:
+  # NATS Configuration
+  NATS_URL: "nats://nats:4222"
+
+  # API Endpoints
+  CUSTOMER_API_URL: "http://mock-services:8001"
+  ORDERS_API_URL: "http://mock-services:8002"
+  TRACKING_API_URL: "http://mock-services:8003"
+
+  # Redis Configuration
+  REDIS_URL: "redis://redis:6379"
+
+  # Database Configuration
+  SQLITE_DB_PATH: "/app/data/conversations.db"
+
+  # Logging Configuration
+  LOG_LEVEL: "INFO"
+
+  # LLM Configuration
+  LITELLM_MODEL: "gpt-3.5-turbo"
+  RESPONSE_TEMPERATURE: "0.3"
+  INTENT_TIMEOUT: "30"
+
+  # Actor Configuration
+  SENTIMENT_CONFIDENCE_THRESHOLD: "0.7"
+  USE_LLM_VALIDATION: "true"
+
+  # Health Check Configuration
+  HEALTH_CHECK_INTERVAL: "30"
+  HEALTH_CHECK_TIMEOUT: "10"
+  HEALTH_CHECK_RETRIES: "3"
+
+  # Performance Configuration
+  MAX_CONCURRENT_REQUESTS: "100"
+  REQUEST_TIMEOUT: "60"
+  ACTOR_POOL_SIZE: "5"
+
+  # Feature Flags
+  ENABLE_METRICS: "true"
+  ENABLE_TRACING: "false"
+  ENABLE_CACHE: "true"
+  ENABLE_RATE_LIMITING: "true"
+
+  # Cache Configuration
+  CACHE_TTL: "3600"
+  CACHE_MAX_SIZE: "1000"
+
+  # Rate Limiting Configuration
+  RATE_LIMIT_REQUESTS: "1000"
+  RATE_LIMIT_WINDOW: "3600"

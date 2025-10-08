@@ -1,0 +1,131 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: actor-mesh-development
+  annotations:
+    config.kubernetes.io/local-config: "true"
+
+resources:
+  - ../../base
+
+namePrefix: "dev-"
+
+commonLabels:
+  environment: development
+  tier: development
+
+commonAnnotations:
+  environment: development
+  deployment.kubernetes.io/revision: "1"
+
+images:
+  - name: actor-mesh/actor-mesh-demo
+    newName: localhost:5001/actor-mesh/actor-mesh-demo
+    newTag: latest
+
+configMapGenerator:
+  - name: dev-config
+    namespace: actor-mesh
+    literals:
+      - LOG_LEVEL=DEBUG
+      - ENABLE_METRICS=true
+      - ENABLE_TRACING=true
+      - ENABLE_DEBUG_ENDPOINTS=true
+      - RATE_LIMIT_REQUESTS=100
+      - CACHE_TTL=300
+      - REQUEST_TIMEOUT=30
+      - MOCK_EXTERNAL_SERVICES=true
+    behavior: merge
+
+patchesStrategicMerge:
+  - patches/gateway-dev.yaml
+  - patches/resources-dev.yaml
+
+patches:
+  # Enable development features
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: ENVIRONMENT
+          value: development
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: DEBUG
+          value: "true"
+
+  # Add development-specific volume mounts for hot reloading
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: gateway
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: RELOAD_ON_CHANGE
+          value: "true"
+
+  # Reduce resource limits for development
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "256Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "200m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "64Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "25m"
+
+  # Add development annotations
+  - target:
+      group: ""
+      version: v1
+      kind: Service
+    patch: |-
+      - op: add
+        path: /metadata/annotations/service.alpha.kubernetes.io~1tolerate-unready-endpoints
+        value: "true"
+
+replicas:
+  - name: gateway
+    count: 1
+  - name: sentiment-analyzer
+    count: 1
+  - name: intent-analyzer
+    count: 1
+  - name: context-retriever
+    count: 1
+  - name: response-generator
+    count: 1
+  - name: guardrail-validator
+    count: 1
+  - name: execution-coordinator
+    count: 1
+  - name: decision-router
+    count: 1
+  - name: escalation-router
+    count: 1
+  - name: response-aggregator
+    count: 1
+  - name: mock-services
+    count: 1
+
+# Development-specific transformations
+transformers:
+  - transformers/dev-transformer.yaml
