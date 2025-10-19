@@ -8,11 +8,14 @@ and appropriateness before they are sent to customers.
 import asyncio
 import json
 import logging
+import os
 import re
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import litellm
 from models.message import MessagePayload
+from storage.sqlite_client import get_sqlite_client
 
 from actors.base import ProcessorActor
 
@@ -29,13 +32,16 @@ class GuardrailValidator(ProcessorActor):
     - Professional tone
     """
 
-    def __init__(self, nats_url: str = "nats://localhost:4222", model: str = "gpt-3.5-turbo"):
+    def __init__(self, nats_url: str = "nats://localhost:4222", model: str = "gpt-3.5-turbo", sqlite_db_path: str = "data/conversations.db"):
         """Initialize the Guardrail Validator actor."""
         super().__init__("guardrail_validator", nats_url)
 
         self.model = model
         self.timeout = 20.0
         self.use_llm_validation = True
+
+        # SQLite configuration for audit logging
+        self.sqlite_db_path = sqlite_db_path or os.getenv("SQLITE_DB_PATH", "data/conversations.db")
 
         # Rule-based guardrails
         self.forbidden_words = {
@@ -123,9 +129,51 @@ class GuardrailValidator(ProcessorActor):
                 "error": str(e),
             }
 
+    async def _log_validation_to_sqlite(self, payload: MessagePayload, validation_result: Dict[str, Any]) -> None:
+        """
+        Log validation results to SQLite for audit trail.
+
+        Args:
+            payload: The message payload being validated
+            validation_result: Results of the validation check
+        """
+        try:
+            sqlite_client = await get_sqlite_client()
+
+            # Generate session_id if not available (fallback)
+            session_id = getattr(payload, 'session_id', f"session_{hash(payload.customer_email)}_{datetime.now().strftime('%Y%m%d')}")
+
+            # Log validation as a system message
+            await sqlite_client.add_message(
+                session_id=session_id,
+                message_id=f"validation_{datetime.now().timestamp()}",
+                customer_email=payload.customer_email,
+                message_type="system",
+                content=f"Guardrail validation: {validation_result.get('status', 'unknown')}",
+                metadata={
+                    "validation_status": validation_result.get("validation_status"),
+                    "approved": validation_result.get("approved"),
+                    "confidence": validation_result.get("confidence"),
+                    "issues_count": len(validation_result.get("issues", [])),
+                    "critical_issues": [issue for issue in validation_result.get("issues", []) if issue.get("severity") == "critical"],
+                    "checks_performed": validation_result.get("checks_performed", []),
+                    "response_text_length": len(payload.response) if payload.response else 0,
+                    "actor": "guardrail_validator"
+                }
+            )
+
+            self.logger.debug(f"Logged validation audit trail for customer {payload.customer_email}")
+
+        except Exception as e:
+            self.logger.error(f"Failed to log validation to SQLite: {e}")
+            # Don't re-raise as this shouldn't block validation
+
     async def _enrich_payload(self, payload: MessagePayload, result: Dict[str, Any]) -> None:
         """Enrich payload with guardrail validation results."""
         payload.guardrail_check = result
+
+        # Log validation results to SQLite for audit trail
+        await self._log_validation_to_sqlite(payload, result)
 
         # If response was corrected, update it
         if result.get("corrected_response"):
@@ -568,10 +616,12 @@ Respond with only the corrected response text, no explanation.
 
 # Factory function for creating the actor
 def create_guardrail_validator(
-    nats_url: str = "nats://localhost:4222", model: str = "gpt-3.5-turbo"
+    nats_url: str = "nats://localhost:4222",
+    model: str = "gpt-3.5-turbo",
+    sqlite_db_path: str = "data/conversations.db"
 ) -> GuardrailValidator:
-    """Create a GuardrailValidator actor instance."""
-    return GuardrailValidator(nats_url, model)
+    """Create a GuardrailValidator actor instance with SQLite audit logging."""
+    return GuardrailValidator(nats_url=nats_url, model=model, sqlite_db_path=sqlite_db_path)
 
 
 # Main execution for standalone testing

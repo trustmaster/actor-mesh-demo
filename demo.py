@@ -58,7 +58,7 @@ from actors.response_aggregator import ResponseAggregator
 from actors.response_generator import create_response_generator
 from actors.sentiment_analyzer import create_sentiment_analyzer
 from models.message import Message, MessagePayload, Route, StandardRoutes
-from storage.redis_client import init_redis
+from storage.redis_client_simple import init_simplified_redis
 from storage.sqlite_client import init_sqlite
 
 
@@ -229,7 +229,7 @@ class ComprehensiveActorMeshDemo:
         """Setup Redis and SQLite storage."""
         try:
             self.print_info("Setting up storage systems...")
-            await init_redis()
+            await init_simplified_redis()
             await init_sqlite()
             self.print_success("Storage systems initialized")
             return True

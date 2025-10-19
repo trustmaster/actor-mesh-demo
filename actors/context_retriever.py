@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 from models.message import MessagePayload
-from storage.redis_client import get_redis_client
+from storage.redis_client_simple import get_simplified_redis_client
 
 from actors.base import ProcessorActor
 
@@ -62,8 +62,8 @@ class ContextRetriever(ProcessorActor):
             customer_email = payload.customer_email
 
             # Check cache first
-            redis_client = await get_redis_client()
-            cached_context = await redis_client.get_context(customer_email)
+            redis_client = await get_simplified_redis_client()
+            cached_context = await redis_client.get_customer_context(customer_email)
 
             if cached_context:
                 self.logger.info(f"Retrieved cached context for {customer_email}")
@@ -78,7 +78,7 @@ class ContextRetriever(ProcessorActor):
 
             if context:
                 # Cache the context
-                await redis_client.set_context(customer_email, context)
+                await redis_client.cache_customer_context(customer_email, context)
 
                 self.logger.info(f"Retrieved fresh context for {customer_email}")
                 return {
@@ -347,8 +347,8 @@ class ContextRetriever(ProcessorActor):
             True if cache was cleared
         """
         try:
-            redis_client = await get_redis_client()
-            return await redis_client.delete_context(customer_email)
+            redis_client = await get_simplified_redis_client()
+            return await redis_client.invalidate_customer_context(customer_email)
         except Exception as e:
             self.logger.error(f"Error invalidating cache for {customer_email}: {e}")
             return False
@@ -365,8 +365,8 @@ class ContextRetriever(ProcessorActor):
             True if update was successful
         """
         try:
-            redis_client = await get_redis_client()
-            await redis_client.update_context(customer_email, updates)
+            redis_client = await get_simplified_redis_client()
+            await redis_client.update_customer_context(customer_email, updates)
             return True
         except Exception as e:
             self.logger.error(f"Error updating context for {customer_email}: {e}")

@@ -1,7 +1,7 @@
 # Docker Compose configuration for E-commerce Support Agent Actor Mesh Demo
 # This provides a complete local development environment with all services
 
-version: '3.8'
+version: "3.8"
 
 services:
   # Infrastructure Services
@@ -9,9 +9,9 @@ services:
     image: nats:2.10-alpine
     container_name: actor-mesh-nats
     ports:
-      - "4222:4222"  # Client connections
-      - "8222:8222"  # HTTP monitoring
-      - "6222:6222"  # Routing
+      - "4222:4222" # Client connections
+      - "8222:8222" # HTTP monitoring
+      - "6222:6222" # Routing
     command:
       - "--jetstream"
       - "--store_dir=/data"
@@ -21,7 +21,15 @@ services:
     volumes:
       - nats_data:/data
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8222"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8222",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -100,7 +108,11 @@ services:
     environment:
       - LOG_LEVEL=INFO
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8001/health && curl -f http://localhost:8002/health && curl -f http://localhost:8003/health"]
+      test:
+        [
+          "CMD-SHELL",
+          "curl -f http://localhost:8001/health && curl -f http://localhost:8002/health && curl -f http://localhost:8003/health",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -117,14 +129,11 @@ services:
     container_name: actor-mesh-sentiment-analyzer
     environment:
       - NATS_URL=nats://nats:4222
-      - REDIS_URL=redis://redis:6379
       - LOG_LEVEL=INFO
       - SENTIMENT_CONFIDENCE_THRESHOLD=0.7
     command: ["python", "-m", "actors.sentiment_analyzer"]
     depends_on:
       nats:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     networks:
       - actor-mesh
@@ -137,15 +146,12 @@ services:
     container_name: actor-mesh-intent-analyzer
     environment:
       - NATS_URL=nats://nats:4222
-      - REDIS_URL=redis://redis:6379
       - LOG_LEVEL=INFO
       - LITELLM_MODEL=gpt-3.5-turbo
       - INTENT_TIMEOUT=30
     command: ["python", "-m", "actors.intent_analyzer"]
     depends_on:
       nats:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     networks:
       - actor-mesh
@@ -182,15 +188,12 @@ services:
     container_name: actor-mesh-response-generator
     environment:
       - NATS_URL=nats://nats:4222
-      - REDIS_URL=redis://redis:6379
       - LOG_LEVEL=INFO
       - LITELLM_MODEL=gpt-3.5-turbo
       - RESPONSE_TEMPERATURE=0.3
     command: ["python", "-m", "actors.response_generator"]
     depends_on:
       nats:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     networks:
       - actor-mesh
@@ -203,14 +206,14 @@ services:
     container_name: actor-mesh-guardrail-validator
     environment:
       - NATS_URL=nats://nats:4222
-      - REDIS_URL=redis://redis:6379
+      - SQLITE_DB_PATH=/app/data/conversations.db
       - LOG_LEVEL=INFO
       - USE_LLM_VALIDATION=true
     command: ["python", "-m", "actors.guardrail_validator"]
+    volumes:
+      - app_data:/app/data
     depends_on:
       nats:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     networks:
       - actor-mesh
@@ -223,7 +226,6 @@ services:
     container_name: actor-mesh-execution-coordinator
     environment:
       - NATS_URL=nats://nats:4222
-      - REDIS_URL=redis://redis:6379
       - CUSTOMER_API_URL=http://mock-services:8001
       - ORDERS_API_URL=http://mock-services:8002
       - TRACKING_API_URL=http://mock-services:8003
@@ -231,8 +233,6 @@ services:
     command: ["python", "-m", "actors.execution_coordinator"]
     depends_on:
       nats:
-        condition: service_healthy
-      redis:
         condition: service_healthy
       mock-services:
         condition: service_healthy
@@ -247,13 +247,10 @@ services:
     container_name: actor-mesh-decision-router
     environment:
       - NATS_URL=nats://nats:4222
-      - REDIS_URL=redis://redis:6379
       - LOG_LEVEL=INFO
     command: ["python", "-m", "actors.decision_router"]
     depends_on:
       nats:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     networks:
       - actor-mesh
@@ -266,13 +263,10 @@ services:
     container_name: actor-mesh-escalation-router
     environment:
       - NATS_URL=nats://nats:4222
-      - REDIS_URL=redis://redis:6379
       - LOG_LEVEL=INFO
     command: ["python", "-m", "actors.escalation_router"]
     depends_on:
       nats:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     networks:
       - actor-mesh
@@ -307,7 +301,7 @@ services:
       target: allinone
     container_name: actor-mesh-allinone
     ports:
-      - "9000:8000"  # Different port to avoid conflicts
+      - "9000:8000" # Different port to avoid conflicts
       - "9001:8001"
       - "9002:8002"
       - "9003:8003"

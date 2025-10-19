@@ -7,10 +7,12 @@ them back to the API Gateway or other response handlers.
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from models.message import Message, MessagePayload
+from storage.sqlite_client import get_sqlite_client
 
 from actors.base import BaseActor
 
@@ -24,9 +26,12 @@ class ResponseAggregator(BaseActor):
     to the appropriate response handler (typically the API Gateway).
     """
 
-    def __init__(self, nats_url: str = "nats://localhost:4222"):
+    def __init__(self, nats_url: str = "nats://localhost:4222", sqlite_db_path: str = "data/conversations.db"):
         super().__init__("response_aggregator", nats_url)
         self.logger = logging.getLogger("actor.response_aggregator")
+
+        # SQLite configuration
+        self.sqlite_db_path = sqlite_db_path or os.getenv("SQLITE_DB_PATH", "data/conversations.db")
 
         # Response delivery configuration
         self.default_response_subject = "ecommerce.support.gateway.response"
@@ -62,6 +67,9 @@ class ResponseAggregator(BaseActor):
             # and publish it directly to the gateway response subject
             response_data = self._prepare_response_data_from_payload(payload)
 
+            # Log conversation to SQLite
+            await self._log_conversation_to_sqlite(payload, response_data)
+
             # Deliver response directly
             await self._deliver_response_from_payload(response_data)
 
@@ -77,6 +85,14 @@ class ResponseAggregator(BaseActor):
         except Exception as e:
             self.delivery_failures += 1
             self.logger.error(f"Error aggregating response for customer {payload.customer_email}: {str(e)}")
+
+            # Still try to log the conversation even on error
+            try:
+                response_data = {"error": str(e), "timestamp": datetime.now(timezone.utc).isoformat()}
+                await self._log_conversation_to_sqlite(payload, response_data)
+            except Exception as log_error:
+                self.logger.error(f"Failed to log conversation on error: {log_error}")
+
             await self._handle_delivery_error_from_payload(payload, str(e))
             return None
 
@@ -97,6 +113,68 @@ class ResponseAggregator(BaseActor):
             "response": payload.response,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+
+        # Add metadata if available
+        if hasattr(payload, "metadata") and payload.metadata:
+            response_data["metadata"] = payload.metadata
+
+        return response_data
+
+    async def _log_conversation_to_sqlite(self, payload: MessagePayload, response_data: Dict[str, Any]) -> None:
+        """
+        Log conversation to SQLite for persistence and analytics.
+
+        Args:
+            payload: The processed message payload
+            response_data: Prepared response data
+        """
+        try:
+            sqlite_client = await get_sqlite_client()
+
+            # Generate session_id if not available (fallback)
+            session_id = getattr(payload, 'session_id', f"session_{hash(payload.customer_email)}_{datetime.now().strftime('%Y%m%d')}")
+
+            # Log the customer message first (if available)
+            if hasattr(payload, 'customer_message') and payload.customer_message:
+                await sqlite_client.add_message(
+                    session_id=session_id,
+                    message_id=f"msg_customer_{datetime.now().timestamp()}",
+                    customer_email=payload.customer_email,
+                    message_type="customer",
+                    content=payload.customer_message,
+                    metadata=getattr(payload, 'metadata', {})
+                )
+
+            # Log the final response
+            if payload.response:
+                await sqlite_client.add_message(
+                    session_id=session_id,
+                    message_id=f"msg_response_{datetime.now().timestamp()}",
+                    customer_email=payload.customer_email,
+                    message_type="agent",
+                    content=payload.response,
+                    metadata={
+                        "sentiment": getattr(payload, 'sentiment', None),
+                        "intent": getattr(payload, 'intent', None),
+                        "processing_time": response_data.get("processing_time"),
+                        "validation_passed": getattr(payload, 'validation_passed', None)
+                    }
+                )
+
+            # Update conversation summary
+            status = "resolved" if getattr(payload, 'validation_passed', True) else "needs_review"
+            await sqlite_client.update_conversation(
+                session_id=session_id,
+                status=status,
+                issue_type=getattr(payload, 'intent', 'unknown'),
+                sentiment=getattr(payload, 'sentiment', 'unknown')
+            )
+
+            self.logger.debug(f"Logged conversation to SQLite for customer {payload.customer_email}")
+
+        except Exception as e:
+            self.logger.error(f"Failed to log conversation to SQLite: {e}")
+            # Don't re-raise as this shouldn't block response delivery
 
         # Add processing metadata
         metadata = {
@@ -531,17 +609,18 @@ We appreciate your patience and look forward to serving you."""
         }
 
 
-def create_response_aggregator(nats_url: str = "nats://localhost:4222") -> ResponseAggregator:
+def create_response_aggregator(nats_url: str = "nats://localhost:4222", sqlite_db_path: str = "data/conversations.db") -> ResponseAggregator:
     """
     Factory function to create a ResponseAggregator instance.
 
     Args:
         nats_url: NATS server URL
+        sqlite_db_path: SQLite database path for conversation logging
 
     Returns:
         Configured ResponseAggregator instance
     """
-    return ResponseAggregator(nats_url=nats_url)
+    return ResponseAggregator(nats_url=nats_url, sqlite_db_path=sqlite_db_path)
 
 
 if __name__ == "__main__":

@@ -141,10 +141,10 @@ class TestActorMessageFlow:
         }
 
         # Mock Redis client
-        with patch("actors.context_retriever.get_redis_client") as mock_redis_client:
+        with patch("actors.context_retriever.get_simplified_redis_client") as mock_redis_client:
             mock_redis = AsyncMock()
-            mock_redis.get_context = AsyncMock(return_value=None)  # No cache
-            mock_redis.set_context = AsyncMock()
+            mock_redis.get_customer_context = AsyncMock(return_value=None)  # No cache
+            mock_redis.cache_customer_context = AsyncMock()
             mock_redis_client.return_value = mock_redis
 
             # Mock HTTP client
