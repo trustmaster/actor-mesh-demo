@@ -1,0 +1,136 @@
+# Docker Compose configuration for E2E testing
+# This provides only the infrastructure services needed for integration tests
+# without running the full actor mesh, allowing tests to run actors locally
+
+services:
+  # Infrastructure Services for Testing
+  nats-test:
+    image: nats:2.10-alpine
+    container_name: actor-mesh-nats-test
+    ports:
+      - "14222:4222" # Different port to avoid conflicts
+      - "18222:8222" # HTTP monitoring
+      - "16222:6222" # Routing
+    command:
+      - "--jetstream"
+      - "--store_dir=/data"
+      - "--http_port=8222"
+    volumes:
+      - nats_test_data:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8222",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - actor-mesh-test
+
+  redis-test:
+    image: redis:7-alpine
+    container_name: actor-mesh-redis-test
+    ports:
+      - "16379:6379" # Different port to avoid conflicts
+    volumes:
+      - redis_test_data:/data
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - actor-mesh-test
+
+  # Mock Services using Python scripts
+  mock-customer-api:
+    image: python:3.11-slim
+    container_name: actor-mesh-mock-customer-api
+    ports:
+      - "18001:8001"
+    volumes:
+      - ./test_mock_services:/app
+    working_dir: /app
+    command: ["python", "customer_api.py"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - actor-mesh-test
+
+  mock-orders-api:
+    image: python:3.11-slim
+    container_name: actor-mesh-mock-orders-api
+    ports:
+      - "18002:8002"
+    volumes:
+      - ./test_mock_services:/app
+    working_dir: /app
+    command: ["python", "orders_api.py"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - actor-mesh-test
+
+  mock-tracking-api:
+    image: python:3.11-slim
+    container_name: actor-mesh-mock-tracking-api
+    ports:
+      - "18003:8003"
+    volumes:
+      - ./test_mock_services:/app
+    working_dir: /app
+    command: ["python", "tracking_api.py"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - actor-mesh-test
+
+volumes:
+  nats_test_data:
+    name: actor-mesh-nats-test-data
+  redis_test_data:
+    name: actor-mesh-redis-test-data
+
+networks:
+  actor-mesh-test:
+    name: actor-mesh-test-network
+    driver: bridge

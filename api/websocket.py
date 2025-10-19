@@ -9,7 +9,7 @@ Actor Mesh system.
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional
 
 import nats
@@ -128,7 +128,7 @@ class WebSocketManager:
                             "processing_time": response_data.get("processing_time", 0),
                             "metadata": response_data.get("metadata", {}),
                         },
-                        timestamp=datetime.utcnow().isoformat(),
+                        timestamp=datetime.now(timezone.utc).isoformat(),
                     )
 
                     await self._send_to_websocket(websocket, response_message)
@@ -169,7 +169,7 @@ class WebSocketManager:
                 "session_id": session_id,
                 "message": "Connected to E-commerce Support Chat",
             },
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
         )
 
         await self._send_to_websocket(websocket, welcome_message)
@@ -234,8 +234,8 @@ class WebSocketManager:
                 # Handle ping/pong
                 pong_message = WebSocketMessage(
                     type="pong",
-                    data={"timestamp": datetime.utcnow().isoformat()},
-                    timestamp=datetime.utcnow().isoformat(),
+                    data={"timestamp": datetime.now(timezone.utc).isoformat()},
+                    timestamp=datetime.now(timezone.utc).isoformat(),
                 )
                 await self._send_to_websocket(websocket, pong_message)
 
@@ -251,14 +251,14 @@ class WebSocketManager:
             error_message = WebSocketMessage(
                 type="error",
                 data={"error": "Invalid message format", "details": str(e)},
-                timestamp=datetime.utcnow().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
             )
             await self._send_to_websocket(websocket, error_message)
 
         except Exception as e:
             self.logger.error(f"Error handling WebSocket message: {str(e)}")
             error_message = WebSocketMessage(
-                type="error", data={"error": "Internal server error"}, timestamp=datetime.utcnow().isoformat()
+                type="error", data={"error": "Internal server error"}, timestamp=datetime.now(timezone.utc).isoformat()
             )
             await self._send_to_websocket(websocket, error_message)
 
@@ -289,7 +289,7 @@ class WebSocketManager:
                 metadata={
                     "websocket_request": True,
                     "connection_id": connection_id,
-                    "gateway_timestamp": datetime.utcnow().isoformat(),
+                    "gateway_timestamp": datetime.now(timezone.utc).isoformat(),
                 },
             )
 
@@ -307,7 +307,7 @@ class WebSocketManager:
                 ack_message = WebSocketMessage(
                     type="message_sent",
                     data={"message_id": message_id, "session_id": session_id, "status": "processing"},
-                    timestamp=datetime.utcnow().isoformat(),
+                    timestamp=datetime.now(timezone.utc).isoformat(),
                 )
                 await self._send_to_websocket(websocket, ack_message)
             else:
@@ -318,14 +318,14 @@ class WebSocketManager:
             error_message = WebSocketMessage(
                 type="error",
                 data={"error": "Invalid chat message format", "details": str(e)},
-                timestamp=datetime.utcnow().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
             )
             await self._send_to_websocket(websocket, error_message)
 
         except Exception as e:
             self.logger.error(f"Error processing chat message: {str(e)}")
             error_message = WebSocketMessage(
-                type="error", data={"error": "Failed to process chat message"}, timestamp=datetime.utcnow().isoformat()
+                type="error", data={"error": "Failed to process chat message"}, timestamp=datetime.now(timezone.utc).isoformat()
             )
             await self._send_to_websocket(websocket, error_message)
 

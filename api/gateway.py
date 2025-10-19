@@ -9,7 +9,7 @@ import asyncio
 import logging
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 import nats
@@ -185,7 +185,7 @@ class APIGateway:
         Returns:
             Chat response with agent reply
         """
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
         session_id = request.session_id or str(uuid.uuid4())
         message_id = str(uuid.uuid4())
 
@@ -235,7 +235,7 @@ class APIGateway:
                 raise HTTPException(status_code=504, detail=f"Request timeout after {self.timeout} seconds")
 
             # Calculate processing time
-            processing_time = (datetime.utcnow() - start_time).total_seconds()
+            processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
 
             # Return response
             return ChatResponse(
@@ -265,7 +265,7 @@ class APIGateway:
 
             return HealthResponse(
                 status="healthy" if nats_status == "connected" else "unhealthy",
-                timestamp=datetime.utcnow().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 services={
                     "nats": nats_status,
                     "pending_requests": str(pending_count),
@@ -274,7 +274,7 @@ class APIGateway:
             )
         except Exception as e:
             self.logger.error(f"Health check error: {str(e)}")
-            return HealthResponse(status="error", timestamp=datetime.utcnow().isoformat(), services={"error": str(e)})
+            return HealthResponse(status="error", timestamp=datetime.now(timezone.utc).isoformat(), services={"error": str(e)})
 
     async def root_endpoint(self):
         """Root endpoint with API information."""
@@ -288,7 +288,7 @@ class APIGateway:
                 "widget": "/widget",
                 "docs": "/docs",
             },
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     async def widget_endpoint(self):

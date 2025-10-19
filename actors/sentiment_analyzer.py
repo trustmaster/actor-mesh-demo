@@ -13,7 +13,7 @@ import asyncio
 import logging
 import re
 from typing import Any, Dict, List, Optional, Set
-from datetime import datetime
+from datetime import datetime, timezone
 
 from actors.base import BaseActor
 from models.message import MessagePayload
@@ -59,7 +59,8 @@ class SentimentAnalyzer(BaseActor):
             "urgent", "emergency", "asap", "immediately", "now", "today",
             "critical", "important", "rush", "quick", "fast", "soon",
             "deadline", "time-sensitive", "expire", "expires", "expired",
-            "last", "final", "closing", "ending", "limited", "running out"
+            "last", "final", "closing", "ending", "limited", "running out",
+            "yesterday", "overdue", "late", "delayed", "missing"
         }
 
         # Complaint indicators
@@ -68,7 +69,9 @@ class SentimentAnalyzer(BaseActor):
             "mistake", "broken", "defective", "damaged", "missing", "lost",
             "delayed", "late", "slow", "cancel", "refund", "return",
             "exchange", "replacement", "fix", "repair", "resolve", "solution",
-            "help", "support", "service", "manager", "supervisor"
+            "manager", "supervisor", "order", "upset", "frustrated", "annoyed",
+            "disappointed", "angry", "furious", "unacceptable", "terrible",
+            "awful", "horrible"
         }
 
         # Escalation triggers
@@ -98,14 +101,13 @@ class SentimentAnalyzer(BaseActor):
             "hasn't", "hadn't"
         }
 
-    async def process(self, message_data: bytes) -> None:
+    async def process(self, payload: MessagePayload) -> Optional[Dict[str, Any]]:
         """Process message for sentiment analysis."""
         try:
-            message = self._parse_message(message_data)
-            self.logger.info(f"Processing sentiment analysis for message: {message.id}")
+            self.logger.info(f"Processing sentiment analysis for customer: {payload.customer_email}")
 
             # Extract message content
-            content = message.payload.content.lower() if message.payload.content else ""
+            content = payload.customer_message.lower() if payload.customer_message else ""
 
             # Perform analysis
             sentiment_result = self._analyze_sentiment(content)
@@ -126,7 +128,7 @@ class SentimentAnalyzer(BaseActor):
                     "escalation_keywords": escalation_result.get("keywords", [])
                 },
                 "analysis_method": "rule_based",
-                "processed_at": datetime.utcnow().isoformat(),
+                "processed_at": datetime.now(timezone.utc).isoformat(),
                 "model_info": {
                     "analyzer_type": "rule_based",
                     "version": "1.0.0",
@@ -134,37 +136,25 @@ class SentimentAnalyzer(BaseActor):
                 }
             }
 
-            # Enrich message payload
-            await self._enrich_payload(message.payload, analysis_result)
-
-            # Update route based on analysis
-            self._update_route_based_on_analysis(message, analysis_result)
-
             self.logger.info(
                 f"Sentiment analysis completed: {sentiment_result.get('label', 'neutral')} "
                 f"(confidence: {sentiment_result.get('confidence', 0.0):.2f}, "
                 f"urgency: {urgency_result.get('level', 'low')})"
             )
 
-            # Forward to next step
-            await self._route_message(message)
+            return analysis_result
 
         except Exception as e:
             self.logger.error(f"Error in sentiment analysis: {e}")
-            # Forward message with minimal analysis to prevent pipeline breakage
-            try:
-                message = self._parse_message(message_data)
-                await self._enrich_payload(message.payload, {
-                    "sentiment": {"label": "neutral", "confidence": 0.0},
-                    "urgency": {"level": "low", "score": 0.0},
-                    "is_complaint": False,
-                    "escalation_needed": False,
-                    "analysis_method": "error_fallback",
-                    "error": str(e)
-                })
-                await self._route_message(message)
-            except Exception as routing_error:
-                self.logger.error(f"Failed to route message after error: {routing_error}")
+            # Return minimal analysis to prevent pipeline breakage
+            return {
+                "sentiment": {"label": "neutral", "confidence": 0.0},
+                "urgency": {"level": "low", "score": 0.0},
+                "is_complaint": False,
+                "escalation_needed": False,
+                "analysis_method": "error_fallback",
+                "error": str(e)
+            }
 
     def _analyze_sentiment(self, text: str) -> Dict[str, Any]:
         """Analyze sentiment using rule-based approach."""
@@ -246,7 +236,10 @@ class SentimentAnalyzer(BaseActor):
             r'\b(expires?|expire)\s+(today|tomorrow|soon)\b',
             r'\b(need|want|require).{0,20}(immediately|asap|urgently)\b',
             r'\b(time\s+sensitive|time-sensitive)\b',
-            r'\b(deadline|due\s+date)\b'
+            r'\b(deadline|due\s+date)\b',
+            r'\b(supposed\s+to\s+(arrive|come|be\s+here))\s+(yesterday|today)\b',
+            r'\b(should\s+have\s+(arrived|come|been\s+here))\b',
+            r'\b(was\s+(supposed|expected))\s+to\b'
         ]
 
         for pattern in urgency_patterns:
@@ -274,24 +267,47 @@ class SentimentAnalyzer(BaseActor):
         complaint_score = 0
         found_keywords = []
 
+        # Check for explicit complaint patterns first (higher weight)
+        complaint_patterns = [
+            r'\b(i\s+want\s+to\s+complain|file\s+a\s+complaint)\b',
+            r'\b(this\s+is\s+(terrible|awful|horrible))\b',
+            r'\b(not\s+satisfied|unsatisfied|disappointed)\b',
+            r'\b(want\s+(refund|money\s+back|return))\b',
+            r'\b(something\s+is\s+wrong|there\s+is\s+a\s+problem)\b',
+            r'\b(very\s+(frustrated|angry|upset))\b'
+        ]
+
+        for pattern in complaint_patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                complaint_score += 3
+
+        # Check for positive context that should reduce complaint threshold
+        positive_context_patterns = [
+            r'\b(thank\s+you|thanks|grateful|appreciate)\b',
+            r'\b(excellent|wonderful|great|amazing|fantastic)\b',
+            r'\b(happy|pleased|satisfied|love)\b'
+        ]
+
+        has_strong_positive_context = any(re.search(pattern, text, re.IGNORECASE)
+                                         for pattern in positive_context_patterns)
+
+        # Check individual complaint words
         for word in words:
             if word in self.complaint_words:
                 complaint_score += 1
                 found_keywords.append(word)
 
-        # Check for complaint patterns
-        complaint_patterns = [
-            r'\b(i\s+want\s+to\s+complain|file\s+a\s+complaint)\b',
-            r'\b(this\s+is\s+(terrible|awful|horrible))\b',
-            r'\b(not\s+satisfied|unsatisfied|disappointed)\b',
-            r'\b(want\s+(refund|money\s+back|return))\b'
-        ]
+        # Adjust threshold based on context:
+        # - Strong positive context (thank you, excellent, etc.) requires more complaint signals
+        # - Normal context uses standard threshold
+        if has_strong_positive_context:
+            # For positive messages, require explicit complaint patterns or many complaint words
+            threshold = 4
+        else:
+            # Standard threshold for neutral/negative messages
+            threshold = 2
 
-        for pattern in complaint_patterns:
-            if re.search(pattern, text, re.IGNORECASE):
-                complaint_score += 2
-
-        is_complaint = complaint_score >= 2
+        is_complaint = complaint_score >= threshold
 
         return {
             "is_complaint": is_complaint,
@@ -330,24 +346,6 @@ class SentimentAnalyzer(BaseActor):
             "score": escalation_score,
             "keywords": found_keywords
         }
-
-    def _update_route_based_on_analysis(self, message, analysis: Dict[str, Any]) -> None:
-        """Update message routing based on analysis results."""
-        sentiment = analysis.get("sentiment", {})
-        urgency = analysis.get("urgency", {})
-
-        # Add escalation router for negative sentiment or high urgency
-        if (sentiment.get("label") == "negative" and sentiment.get("confidence", 0) > 0.7) or \
-           urgency.get("level") == "high" or \
-           analysis.get("escalation_needed", False):
-
-            if "escalation_router" not in message.route.steps:
-                # Insert escalation router before response generation
-                try:
-                    response_idx = message.route.steps.index("response_generator")
-                    message.route.steps.insert(response_idx, "escalation_router")
-                except ValueError:
-                    message.route.steps.append("escalation_router")
 
     async def _enrich_payload(self, payload: MessagePayload, result: Dict[str, Any]) -> None:
         """Enrich payload with sentiment analysis results."""

@@ -63,8 +63,8 @@ class TestSessionState:
         )
 
         # Convert to JSON and back
-        json_data = session.json()
-        reconstructed = SessionState.parse_raw(json_data)
+        json_data = session.model_dump_json()
+        reconstructed = SessionState.model_validate_json(json_data)
 
         assert reconstructed.session_id == session.session_id
         assert reconstructed.customer_email == session.customer_email
@@ -140,7 +140,7 @@ class TestRedisClient:
 
         await redis_client.disconnect()
 
-        mock_redis.close.assert_called_once()
+        mock_redis.aclose.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_ensure_connected(self, redis_client, mock_redis):
@@ -155,8 +155,8 @@ class TestRedisClient:
         """Test session creation."""
         redis_client.redis = mock_redis
 
-        with patch("datetime.datetime") as mock_datetime:
-            mock_datetime.utcnow.return_value.isoformat.return_value = "2024-01-15T10:30:00"
+        with patch("storage.redis_client.datetime") as mock_datetime:
+            mock_datetime.now.return_value.isoformat.return_value = "2024-01-15T10:30:00"
 
             session = await redis_client.create_session("test-session", "test@example.com")
 
@@ -183,7 +183,7 @@ class TestRedisClient:
             created_at="2024-01-15T10:30:00",
             last_activity="2024-01-15T10:30:00",
         )
-        mock_redis.get.return_value = session_data.json()
+        mock_redis.get.return_value = session_data.model_dump_json()
 
         session = await redis_client.get_session("test-session")
 
@@ -218,7 +218,7 @@ class TestRedisClient:
             message_count=5,
             status="active",
         )
-        mock_redis.get.return_value = existing_session.json()
+        mock_redis.get.return_value = existing_session.model_dump_json()
 
         with patch("datetime.datetime") as mock_datetime:
             mock_datetime.utcnow.return_value.isoformat.return_value = "2024-01-15T11:00:00"
@@ -251,7 +251,7 @@ class TestRedisClient:
             last_activity="2024-01-15T10:30:00",
             message_count=5,
         )
-        mock_redis.get.return_value = existing_session.json()
+        mock_redis.get.return_value = existing_session.model_dump_json()
 
         with patch("datetime.datetime") as mock_datetime:
             mock_datetime.utcnow.return_value.isoformat.return_value = "2024-01-15T11:00:00"
@@ -497,7 +497,7 @@ class TestRedisClient:
 
         # Mock scan_iter and get calls
         keys = ["session:session-1", "session:session-2", "session:session-3"]
-        values = [session1.json(), session2.json(), session3.json()]
+        values = [session1.model_dump_json(), session2.model_dump_json(), session3.model_dump_json()]
 
         async def mock_scan_iter(pattern):
             for key in keys:
@@ -507,7 +507,7 @@ class TestRedisClient:
             index = keys.index(key)
             return values[index]
 
-        mock_redis.scan_iter.return_value = mock_scan_iter(None)
+        mock_redis.scan_iter = mock_scan_iter
         mock_redis.get.side_effect = mock_get
 
         sessions = await redis_client.get_sessions_by_customer("test@example.com")
@@ -533,7 +533,7 @@ class TestRedisClient:
                 for i in range(1):
                     yield f"temp:test-{i}"
 
-        mock_redis.scan_iter.side_effect = mock_scan_iter
+        mock_redis.scan_iter = mock_scan_iter
 
         stats = await redis_client.cleanup_expired_data()
 
@@ -618,6 +618,27 @@ class TestRedisClientIntegration:
         """Create a RedisClient instance for integration testing."""
         return RedisClient(redis_url="redis://localhost:6379", db=15)  # Use test DB
 
+    @pytest.fixture
+    def mock_redis(self):
+        """Create a mock Redis connection."""
+        mock_redis = AsyncMock()
+        mock_redis.ping = AsyncMock(return_value=True)
+        mock_redis.setex = AsyncMock(return_value=True)
+        mock_redis.get = AsyncMock(return_value=None)
+        mock_redis.delete = AsyncMock(return_value=1)
+        mock_redis.incrby = AsyncMock(return_value=1)
+        mock_redis.set = AsyncMock(return_value=True)
+        mock_redis.close = AsyncMock()
+        mock_redis.info = AsyncMock(
+            return_value={
+                "redis_version": "6.0.0",
+                "used_memory": 1000000,
+                "connected_clients": 1,
+            }
+        )
+        mock_redis.scan_iter = AsyncMock(return_value=AsyncMock(__aiter__=lambda x: iter([])))
+        return mock_redis
+
     @pytest.mark.asyncio
     async def test_session_lifecycle(self, redis_client, mock_redis):
         """Test complete session lifecycle."""
@@ -641,8 +662,8 @@ class TestRedisClientIntegration:
         mock_redis.get.side_effect = mock_get
         mock_redis.setex.side_effect = mock_setex
 
-        with patch("datetime.datetime") as mock_datetime:
-            mock_datetime.utcnow.return_value.isoformat.return_value = "2024-01-15T10:30:00"
+        with patch("storage.redis_client.datetime") as mock_datetime:
+            mock_datetime.now.return_value.isoformat.return_value = "2024-01-15T10:30:00"
 
             # Create session
             session = await redis_client.create_session("test-session", "test@example.com")
@@ -654,7 +675,7 @@ class TestRedisClientIntegration:
             assert retrieved.session_id == "test-session"
 
             # Update session
-            mock_datetime.utcnow.return_value.isoformat.return_value = "2024-01-15T11:00:00"
+            mock_datetime.now.return_value.isoformat.return_value = "2024-01-15T11:00:00"
             result = await redis_client.update_session("test-session", status="escalated")
             assert result is True
 

@@ -231,7 +231,7 @@ class BaseActor(ABC):
             next_actor: Optional[str] = message.route.get_current_actor()
             if next_actor:
                 next_subject: str = f"ecommerce.support.{next_actor}"
-                await self.js.publish(next_subject, json.dumps(message.dict()).encode())
+                await self.js.publish(next_subject, json.dumps(message.model_dump()).encode())
                 self.logger.debug(f"Routed message to {next_actor}")
         else:
             # Route complete
@@ -246,7 +246,7 @@ class BaseActor(ABC):
             error_subject: str = f"ecommerce.support.{message.route.error_handler}"
             message.add_error(error_type, error_message, self.name)
 
-            await self.js.publish(error_subject, json.dumps(message.dict()).encode())
+            await self.js.publish(error_subject, json.dumps(message.model_dump()).encode())
             self.logger.info(f"Routed error message to {message.route.error_handler}")
 
     async def _enrich_payload(self, payload: MessagePayload, result: Dict[str, Any]) -> None:
@@ -259,7 +259,7 @@ class BaseActor(ABC):
         if self.js is None:
             raise RuntimeError("Actor not started")
 
-        await self.js.publish(subject, json.dumps(message.dict()).encode())
+        await self.js.publish(subject, json.dumps(message.model_dump()).encode())
 
     @abstractmethod
     async def process(self, payload: MessagePayload) -> Optional[Dict[str, Any]]:

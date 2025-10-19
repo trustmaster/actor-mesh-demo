@@ -6,7 +6,7 @@ actors in the e-commerce support agent system.
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -78,7 +78,7 @@ class Message(BaseModel):
         super().__init__(**data)
         # Add creation timestamp
         if "created_at" not in self.metadata:
-            self.metadata["created_at"] = datetime.utcnow().isoformat()
+            self.metadata["created_at"] = datetime.now(timezone.utc).isoformat()
         if "retry_count" not in self.metadata:
             self.metadata["retry_count"] = 0
 
@@ -92,7 +92,7 @@ class Message(BaseModel):
             "type": error_type,
             "message": error_message,
             "actor": actor,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         self.payload.error = error_info
         self.payload.recovery_log.append(error_info)
@@ -100,7 +100,7 @@ class Message(BaseModel):
     def increment_retry(self) -> None:
         """Increment retry counter."""
         self.metadata["retry_count"] += 1
-        self.metadata["last_retry_at"] = datetime.utcnow().isoformat()
+        self.metadata["last_retry_at"] = datetime.now(timezone.utc).isoformat()
 
     def to_nats_subject(self, actor_name: str) -> str:
         """Generate NATS subject for the given actor."""

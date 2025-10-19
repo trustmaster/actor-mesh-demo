@@ -7,7 +7,8 @@ enriching messages with customer profile, order history, and related information
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -69,7 +70,7 @@ class ContextRetriever(ProcessorActor):
                 return {
                     "customer_context": cached_context,
                     "source": "cache",
-                    "retrieved_at": datetime.utcnow().isoformat(),
+                    "retrieved_at": datetime.now(timezone.utc).isoformat(),
                 }
 
             # Fetch fresh context data
@@ -83,14 +84,14 @@ class ContextRetriever(ProcessorActor):
                 return {
                     "customer_context": context,
                     "source": "api",
-                    "retrieved_at": datetime.utcnow().isoformat(),
+                    "retrieved_at": datetime.now(timezone.utc).isoformat(),
                 }
             else:
                 self.logger.warning(f"No context found for {customer_email}")
                 return {
                     "customer_context": {"error": "Customer not found"},
                     "source": "error",
-                    "retrieved_at": datetime.utcnow().isoformat(),
+                    "retrieved_at": datetime.now(timezone.utc).isoformat(),
                 }
 
         except Exception as e:
@@ -98,7 +99,7 @@ class ContextRetriever(ProcessorActor):
             return {
                 "customer_context": {"error": str(e)},
                 "source": "error",
-                "retrieved_at": datetime.utcnow().isoformat(),
+                "retrieved_at": datetime.now(timezone.utc).isoformat(),
             }
 
     async def _enrich_payload(self, payload: MessagePayload, result: Dict[str, Any]) -> None:
@@ -151,7 +152,7 @@ class ContextRetriever(ProcessorActor):
             response = await client.get(url)
 
             if response.status_code == 200:
-                profile = response.json()
+                profile = await response.json()
                 self.logger.debug(f"Retrieved profile for {email}")
                 return profile
             elif response.status_code == 404:
@@ -172,7 +173,8 @@ class ContextRetriever(ProcessorActor):
             response = await client.get(url, params={"limit": 10})
 
             if response.status_code == 200:
-                orders = response.json()
+                orders_response = await response.json()
+                orders = orders_response.get("orders", [])
                 self.logger.debug(f"Retrieved {len(orders)} orders for {email}")
                 return orders
             else:
@@ -190,7 +192,12 @@ class ContextRetriever(ProcessorActor):
             response = await client.get(url, params={"limit": 5})
 
             if response.status_code == 200:
-                history = response.json()
+                history_response = await response.json()
+                # Handle both list and dict responses
+                if isinstance(history_response, list):
+                    history = history_response
+                else:
+                    history = history_response.get("support_history", [])
                 self.logger.debug(f"Retrieved {len(history)} support interactions for {customer_id}")
                 return history
             else:
@@ -217,7 +224,7 @@ class ContextRetriever(ProcessorActor):
                 response = await client.get(url)
 
                 if response.status_code == 200:
-                    tracking_data = response.json()
+                    tracking_data = await response.json()
                     tracking_info.append(
                         {
                             "order_id": order["order_id"],

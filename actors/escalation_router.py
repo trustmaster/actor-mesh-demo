@@ -6,7 +6,7 @@ It manages the handoff process and provides fallback routing for failed operatio
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from models.message import Message, MessagePayload
@@ -193,7 +193,7 @@ class EscalationRouter(RouterActor):
         # For demo purposes, we'll simulate the handoff
 
         handoff_info = {
-            "escalated_at": datetime.utcnow().isoformat(),
+            "escalated_at": datetime.now(timezone.utc).isoformat(),
             "escalation_reason": self._get_escalation_reason(message),
             "queue_position": self.queue_position,
             "estimated_wait_time": "5-10 minutes" if self.human_agent_available else "30+ minutes",
@@ -368,7 +368,7 @@ Reference ID: {message.message_id[:8]}"""
 Please contact our customer service team directly for immediate assistance.
 
 Reference ID: {message.message_id[:8]}
-Error ID: {datetime.utcnow().strftime("%Y%m%d_%H%M%S")}"""
+Error ID: {datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")}"""
 
         message.payload.response = emergency_response
         message.metadata["emergency_fallback"] = True

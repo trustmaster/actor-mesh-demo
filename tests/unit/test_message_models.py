@@ -5,7 +5,7 @@ Tests the core message protocol models including MessagePayload, Route, Message,
 StandardRoutes, and factory functions.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from models.message import (
     Message,
@@ -60,7 +60,7 @@ class TestMessagePayload:
         )
 
         # Convert to dict and back
-        payload_dict = original.dict()
+        payload_dict = original.model_dump()
         reconstructed = MessagePayload(**payload_dict)
 
         assert reconstructed.customer_message == original.customer_message
@@ -76,7 +76,7 @@ class TestMessagePayload:
             "type": "processing_error",
             "message": "Failed to process",
             "actor": "test_actor",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         payload.error = error_info
         payload.recovery_log.append(error_info)

@@ -7,7 +7,7 @@ them back to the API Gateway or other response handlers.
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from models.message import Message
@@ -84,7 +84,7 @@ class ResponseAggregator(BaseActor):
             "message_id": message.message_id,
             "session_id": message.session_id,
             "response": message.payload.response,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
         # Add processing metadata
@@ -132,7 +132,7 @@ class ResponseAggregator(BaseActor):
         if "gateway_timestamp" in message.metadata:
             try:
                 start_time = datetime.fromisoformat(message.metadata["gateway_timestamp"])
-                processing_time = (datetime.utcnow() - start_time).total_seconds()
+                processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
                 metadata["total_processing_time"] = processing_time
             except (ValueError, KeyError):
                 pass
@@ -280,7 +280,7 @@ We appreciate your patience and look forward to serving you."""
                 "session_id": message.session_id,
                 "error": error,
                 "original_response": message.payload.response,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
             error_json = json.dumps(error_data)
@@ -304,7 +304,7 @@ We appreciate your patience and look forward to serving you."""
             "delivery_failures": self.delivery_failures,
             "delivery_success_rate": (self.responses_delivered / max(self.responses_processed, 1) * 100),
             "pending_responses": 0,  # This actor doesn't queue responses
-            "uptime": getattr(self, "_start_time", datetime.utcnow()).isoformat(),
+            "uptime": getattr(self, "_start_time", datetime.now(timezone.utc)).isoformat(),
         }
 
 

@@ -7,7 +7,7 @@ and services based on the action plan generated in previous processing steps.
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -105,7 +105,7 @@ class ExecutionCoordinator(ProcessorActor):
                 "execution_status": summary["overall_status"],
                 "actions_executed": execution_results,
                 "summary": summary,
-                "executed_at": datetime.utcnow().isoformat(),
+                "executed_at": datetime.now(timezone.utc).isoformat(),
             }
 
         except Exception as e:
@@ -114,7 +114,7 @@ class ExecutionCoordinator(ProcessorActor):
                 "execution_status": "error",
                 "actions_executed": [],
                 "error": str(e),
-                "executed_at": datetime.utcnow().isoformat(),
+                "executed_at": datetime.now(timezone.utc).isoformat(),
             }
 
     async def _enrich_payload(self, payload: MessagePayload, result: Dict[str, Any]) -> None:

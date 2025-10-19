@@ -316,6 +316,36 @@ make demo-web             # Interactive browser-based testing
 ✅ **Error Recovery**: Fault tolerance and graceful degradation testing
 ✅ **Kubernetes Deployment**: Container orchestration and production readiness validation
 
+### 🔬 End-to-End (E2E) Testing
+
+**Real Infrastructure Testing** with Docker Compose for complete system validation:
+
+```bash
+# Quick E2E Testing
+./run_e2e_tests.sh setup     # Test infrastructure setup
+./run_e2e_tests.sh health    # System health monitoring
+./run_e2e_tests.sh angry     # Complete angry customer flow
+./run_e2e_tests.sh all       # Full E2E test suite
+
+# Manual E2E Testing
+python test_e2e_setup.py     # Infrastructure validation
+pytest tests/integration/test_system_e2e.py -v  # All E2E tests
+```
+
+**E2E Test Infrastructure**:
+- **Real Services**: NATS, Redis, Mock APIs running in Docker containers
+- **Actual Actors**: Full actor mesh with real message processing
+- **Complete Flows**: End-to-end customer support scenarios
+- **Performance Testing**: Concurrent load and error recovery validation
+
+**Current Status**: ✅ **6/8 tests passing** (75% success rate)
+- Full support flows with sentiment analysis and response generation
+- System health monitoring and data persistence validation
+- Performance testing under concurrent load
+- Error recovery and resilience testing
+
+📖 **Detailed Guide**: See [E2E_TESTS.md](E2E_TESTS.md) for complete testing documentation
+
 ## Deployment
 
 ### 🐳 Docker Deployment

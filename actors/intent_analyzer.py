@@ -50,6 +50,7 @@ class IntentAnalyzer(ProcessorActor):
         # Entity types to extract
         self.entity_types = [
             "order_number",
+            "order_id",
             "tracking_number",
             "product_name",
             "date",
@@ -58,6 +59,7 @@ class IntentAnalyzer(ProcessorActor):
             "phone_number",
             "address",
             "payment_method",
+            "emotion",
         ]
 
     async def process(self, payload: MessagePayload) -> Optional[Dict[str, Any]]:
@@ -81,7 +83,7 @@ class IntentAnalyzer(ProcessorActor):
                 rule_entities = self._extract_entities_rule_based(message)
 
                 # Merge entities (LLM takes priority, rule-based fills gaps)
-                merged_entities = self._merge_entities(llm_result.get("entities", {}), rule_entities)
+                merged_entities = self._merge_entities(llm_result.get("entities", []), rule_entities)
 
                 result = {
                     "intent": llm_result.get("intent", {}),

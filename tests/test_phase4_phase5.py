@@ -11,7 +11,7 @@ import asyncio
 import json
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
@@ -350,7 +350,7 @@ class Phase4Phase5Tester:
             },
         )
         message.payload.response = "You're welcome! Is there anything else I can help you with?"
-        message.metadata["gateway_timestamp"] = datetime.utcnow().isoformat()
+        message.metadata["gateway_timestamp"] = datetime.now(timezone.utc).isoformat()
 
         # Mock NATS publish to capture response
         published_data = None

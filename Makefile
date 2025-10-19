@@ -1,7 +1,7 @@
 # Makefile for E-commerce Support Agent - Actor Mesh Demo
 # Provides convenient CLI commands for running services and usage scenarios
 
-.PHONY: help install clean start stop test test-unit test-integration test-coverage test-verbose demo actors services monitor logs health web-widget demo-web
+.PHONY: help install clean start stop test test-unit test-integration test-coverage test-verbose test-e2e test-e2e-setup test-e2e-health test-e2e-angry test-e2e-happy test-e2e-performance test-e2e-resilience test-e2e-persistence test-e2e-routing test-e2e-quality test-e2e-all test-e2e-cleanup demo actors services monitor logs health web-widget demo-web
 
 # Default target
 help: ## Show this help message
@@ -13,14 +13,16 @@ help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Usage Examples:"
-	@echo "  make install     # Initial setup"
-	@echo "  make start       # Start all services"
-	@echo "  make demo        # Run interactive demo"
-	@echo "  make test        # Run all tests"
-	@echo "  make test-unit   # Run unit tests only"
-	@echo "  make test-cov    # Run tests with coverage"
-	@echo "  make validate    # Validate test setup"
-	@echo "  make stop        # Stop all services"
+	@echo "  make install       # Initial setup"
+	@echo "  make start         # Start all services"
+	@echo "  make demo          # Run interactive demo"
+	@echo "  make test          # Run all tests"
+	@echo "  make test-unit     # Run unit tests only"
+	@echo "  make test-e2e      # Run E2E tests with Docker"
+	@echo "  make test-e2e-fast # Run E2E tests (no setup)"
+	@echo "  make test-coverage # Run tests with coverage"
+	@echo "  make validate      # Validate test setup"
+	@echo "  make stop          # Stop all services"
 
 # Installation and Setup
 install: ## Install dependencies and setup environment
@@ -111,12 +113,12 @@ restart: stop start ## Restart all services
 # Development and Testing
 test: ## Run all tests
 	@echo "🧪 Running tests..."
-	@source venv/bin/activate && python test_basic_flow.py
+	@source venv/bin/activate && python tests/test_basic_flow.py
 
 test-integration: start-infrastructure start-services ## Run integration tests with full setup
 	@echo "🔬 Running integration tests..."
 	@sleep 5  # Wait for services to be ready
-	@source venv/bin/activate && python test_basic_flow.py
+	@source venv/bin/activate && python tests/test_basic_flow.py
 	@$(MAKE) stop-services
 
 test-actors: ## Test individual actors without NATS
@@ -132,7 +134,7 @@ test-actors: ## Test individual actors without NATS
 # Test Setup and Validation
 validate: ## Validate test environment and setup
 	@echo "🔍 Validating test environment..."
-	@source venv/bin/activate && python test_setup_validation.py
+	@source venv/bin/activate && python tests/test_setup_validation.py
 
 test-setup: validate ## Alias for validate command
 	@echo "✅ Test setup validation complete"
@@ -179,6 +181,67 @@ test-integration-full: start-infrastructure start-services ## Run integration te
 	@sleep 5  # Wait for services to be ready
 	@source venv/bin/activate && python -m pytest tests/integration -v
 	@$(MAKE) stop-services
+
+# E2E Testing Commands (replaces run_e2e_tests.sh functionality)
+test-e2e-setup: ## Test E2E infrastructure setup only
+	@echo "🔧 Testing E2E infrastructure setup..."
+	@source venv/bin/activate && python tests/test_e2e_setup.py
+
+test-e2e-health: test-e2e-setup ## Run E2E health monitoring test
+	@echo "🏥 Running E2E health test..."
+	@source venv/bin/activate && python -m pytest tests/integration/test_system_e2e.py::TestSystemEndToEnd::test_system_health_and_monitoring -v --tb=short
+
+test-e2e-angry: test-e2e-setup ## Run E2E angry customer flow test
+	@echo "😠 Running E2E angry customer test..."
+	@source venv/bin/activate && python -m pytest tests/integration/test_system_e2e.py::TestSystemEndToEnd::test_complete_support_flow_angry_customer -v --tb=short
+
+test-e2e-happy: test-e2e-setup ## Run E2E happy customer flow test
+	@echo "😊 Running E2E happy customer test..."
+	@source venv/bin/activate && python -m pytest tests/integration/test_system_e2e.py::TestSystemEndToEnd::test_complete_support_flow_happy_customer -v --tb=short
+
+test-e2e-performance: test-e2e-setup ## Run E2E performance test
+	@echo "⚡ Running E2E performance test..."
+	@source venv/bin/activate && python -m pytest tests/integration/test_system_e2e.py::TestSystemEndToEnd::test_system_performance_under_load -v --tb=short
+
+test-e2e-resilience: test-e2e-setup ## Run E2E error recovery test
+	@echo "🛡️ Running E2E resilience test..."
+	@source venv/bin/activate && python -m pytest tests/integration/test_system_e2e.py::TestSystemEndToEnd::test_error_recovery_and_resilience -v --tb=short
+
+test-e2e-persistence: test-e2e-setup ## Run E2E data persistence test
+	@echo "💾 Running E2E persistence test..."
+	@source venv/bin/activate && python -m pytest tests/integration/test_system_e2e.py::TestSystemEndToEnd::test_data_persistence_and_session_management -v --tb=short
+
+test-e2e-routing: test-e2e-setup ## Run E2E message routing test
+	@echo "🔀 Running E2E routing test..."
+	@source venv/bin/activate && python -m pytest tests/integration/test_system_e2e.py::TestSystemEndToEnd::test_message_routing_and_flow_control -v --tb=short
+
+test-e2e-quality: test-e2e-setup ## Run E2E response quality test
+	@echo "🎯 Running E2E quality test..."
+	@source venv/bin/activate && python -m pytest tests/integration/test_system_e2e.py::TestSystemEndToEnd::test_end_to_end_response_quality -v --tb=short
+
+test-e2e-all: test-e2e-setup ## Run complete E2E test suite
+	@echo "🚀 Running complete E2E test suite..."
+	@source venv/bin/activate && python -m pytest tests/integration/test_system_e2e.py -v --tb=short
+
+test-e2e: test-e2e-all ## Alias for test-e2e-all
+
+test-e2e-cleanup: ## Clean up E2E Docker services
+	@echo "🧹 Cleaning up E2E Docker services..."
+	@docker-compose -f docker-compose.test.yml down -v 2>/dev/null || true
+	@echo "✅ E2E Docker cleanup completed"
+
+# E2E Testing with Options
+test-e2e-verbose: test-e2e-setup ## Run E2E tests with verbose output
+	@echo "🔍 Running E2E tests (verbose)..."
+	@source venv/bin/activate && python -m pytest tests/integration/test_system_e2e.py -v -s --tb=long
+
+test-e2e-coverage: test-e2e-setup ## Run E2E tests with coverage
+	@echo "📊 Running E2E tests with coverage..."
+	@source venv/bin/activate && python -m pytest tests/integration/test_system_e2e.py --cov=actors --cov=models --cov=storage --cov-report=term-missing -v
+
+test-e2e-fast: ## Run E2E tests without setup validation (faster)
+	@echo "⚡ Running E2E tests (fast mode)..."
+	@source venv/bin/activate && python -m pytest tests/integration/test_system_e2e.py -v --tb=short
 
 test-phase4-5: start-infrastructure ## Test Phase 4 & 5 components (routers + gateway)
 	@echo "🧠 Testing Phase 4 & 5 components..."

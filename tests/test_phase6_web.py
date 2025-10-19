@@ -6,7 +6,7 @@ and the complete web-based customer interaction flow.
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -159,7 +159,7 @@ class TestWebSocketManager:
         mock_websocket.send_text.reset_mock()
 
         # Send ping message
-        ping_message = json.dumps({"type": "ping", "timestamp": datetime.utcnow().isoformat()})
+        ping_message = json.dumps({"type": "ping", "timestamp": datetime.now(timezone.utc).isoformat()})
 
         await ws_manager.handle_message(mock_websocket, connection_id, ping_message)
 
@@ -189,7 +189,7 @@ class TestWebSocketManager:
                     "customer_email": "test@example.com",
                     "session_id": "test_session",
                 },
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         )
 
@@ -274,7 +274,7 @@ class TestWebSocketManager:
         broadcast_message = WebSocketMessage(
             type="broadcast",
             data={"message": "System maintenance in 5 minutes"},
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
         )
 
         await ws_manager.broadcast_to_session(session_id, broadcast_message)

@@ -35,34 +35,39 @@ class ResponseGenerator(ProcessorActor):
         # Response templates for different scenarios
         self.response_templates = {
             "order_inquiry": {
-                "positive": "I'd be happy to help you with your order inquiry!",
+                "positive": "Thank you for your kind words! I appreciate your patience and I'm glad to help you with your order inquiry. Let me track that for you right away.",
                 "neutral": "I can help you check on your order status.",
                 "negative": "I understand you're concerned about your order, and I'm here to help resolve this.",
             },
             "delivery_issue": {
-                "positive": "I'll help you track your delivery and resolve any issues.",
+                "positive": "I appreciate you reaching out! I'm glad to help you track your delivery and resolve any issues.",
                 "neutral": "Let me look into your delivery status for you.",
                 "negative": "I sincerely apologize for the delivery issues you're experiencing. Let me fix this right away.",
             },
             "product_complaint": {
-                "positive": "I'd be glad to help with any product concerns you have.",
+                "positive": "Thank you for contacting us! I appreciate your business and I'm glad to help with any product concerns you have.",
                 "neutral": "I can assist you with your product issue.",
                 "negative": "I'm very sorry about the problems with your product. This isn't the experience we want for our customers.",
             },
             "return_request": {
-                "positive": "I'll be happy to help you with your return request.",
+                "positive": "Thank you for being such a valued customer! I appreciate your business and I'm glad to help you with your return request.",
                 "neutral": "I can process your return request for you.",
                 "negative": "I understand you need to return this item, and I'll make sure we handle this smoothly for you.",
             },
             "billing_question": {
-                "positive": "I'm here to help clarify any billing questions you have.",
+                "positive": "Thank you for reaching out! I appreciate your business and I'm glad to help clarify any billing questions you have.",
                 "neutral": "I can help explain your billing details.",
                 "negative": "I apologize for any confusion about your billing. Let me get this sorted out for you immediately.",
             },
             "escalation_request": {
-                "positive": "I understand you'd like to speak with a supervisor. Let me arrange that for you.",
+                "positive": "Thank you for your feedback! I appreciate you giving us the opportunity to help, and I'm glad to arrange for you to speak with a supervisor.",
                 "neutral": "I can connect you with a manager to discuss your concerns.",
                 "negative": "I completely understand your frustration and will escalate this to a supervisor right away.",
+            },
+            "general_inquiry": {
+                "positive": "Thank you for contacting us! I appreciate your business and I'm glad to help you with your inquiry.",
+                "neutral": "I'm here to help you with your inquiry.",
+                "negative": "I apologize for any inconvenience. Let me help resolve your concern right away.",
             },
         }
 
@@ -129,10 +134,6 @@ class ResponseGenerator(ProcessorActor):
     async def _enrich_payload(self, payload: MessagePayload, result: Dict[str, Any]) -> None:
         """Enrich payload with generated response."""
         payload.response = result["response_text"]
-
-        # Store full response metadata in a separate field
-        if not hasattr(payload, "response_metadata"):
-            payload.response_metadata = result
 
     async def _generate_with_llm(
         self, payload: MessagePayload, sentiment: Dict, intent: Dict, context: Dict
@@ -309,10 +310,9 @@ Focus on being helpful, professional, and resolving the customer's issue effecti
         intent_category = intent.get("intent", {}).get("category", "general_inquiry")
         sentiment_label = sentiment.get("sentiment", {}).get("label", "neutral")
 
-        # Get base template
-        template_text = self.response_templates.get(intent_category, {}).get(
-            sentiment_label, "Thank you for contacting us. We're here to help!"
-        )
+        # Get base template - default to general_inquiry if intent not found
+        templates = self.response_templates.get(intent_category, self.response_templates["general_inquiry"])
+        template_text = templates.get(sentiment_label, templates.get("neutral", "Thank you for contacting us. We're here to help!"))
 
         # Customize based on context
         customer_summary = context.get("customer_context", {}).get("summary", {})

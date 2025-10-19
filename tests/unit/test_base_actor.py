@@ -21,7 +21,7 @@ from actors.base import (
 from models.message import Message, MessagePayload
 
 
-class TestProcessorActor(ProcessorActor):
+class MockProcessorActor(ProcessorActor):
     """Test implementation of ProcessorActor."""
 
     def __init__(self, name: str = "test_processor", nats_url: str = "nats://localhost:4222"):
@@ -42,7 +42,7 @@ class TestProcessorActor(ProcessorActor):
         payload.sentiment = result
 
 
-class TestRouterActor(RouterActor):
+class MockRouterActor(RouterActor):
     """Test implementation of RouterActor."""
 
     def __init__(self, name: str = "test_router", nats_url: str = "nats://localhost:4222"):
@@ -61,20 +61,21 @@ class TestRouterActor(RouterActor):
             raise self.route_exception
 
 
+@pytest.fixture
+def mock_nats_setup(mock_nats_connection, mock_jetstream):
+    """Setup mocked NATS connection."""
+    with patch("nats.connect") as mock_connect:
+        mock_connect.return_value = mock_nats_connection
+        mock_nats_connection.jetstream = MagicMock(return_value=mock_jetstream)
+        yield mock_connect, mock_nats_connection, mock_jetstream
+
+
 class TestBaseActor:
     """Test cases for BaseActor class."""
 
-    @pytest.fixture
-    def mock_nats_setup(self, mock_nats_connection, mock_jetstream):
-        """Setup mocked NATS connection."""
-        with patch("nats.connect") as mock_connect:
-            mock_connect.return_value = mock_nats_connection
-            mock_nats_connection.jetstream.return_value = mock_jetstream
-            yield mock_connect, mock_nats_connection, mock_jetstream
-
     def test_actor_initialization(self):
         """Test actor initialization."""
-        actor = TestProcessorActor(name="test_actor", nats_url="nats://test:4222")
+        actor = MockProcessorActor(name="test_actor", nats_url="nats://test:4222")
 
         assert actor.name == "test_actor"
         assert actor.nats_url == "nats://test:4222"
@@ -87,7 +88,7 @@ class TestBaseActor:
 
     def test_actor_default_values(self):
         """Test actor with default values."""
-        actor = TestProcessorActor()
+        actor = MockProcessorActor()
 
         assert actor.nats_url == "nats://localhost:4222"
         assert actor.subject == "ecommerce.support.test_processor"
@@ -96,7 +97,7 @@ class TestBaseActor:
     async def test_actor_start_success(self, mock_nats_setup):
         """Test successful actor startup."""
         mock_connect, mock_nc, mock_js = mock_nats_setup
-        actor = TestProcessorActor()
+        actor = MockProcessorActor()
 
         await actor.start()
 
@@ -114,7 +115,7 @@ class TestBaseActor:
         # Simulate stream doesn't exist
         mock_js.stream_info.side_effect = Exception("Stream not found")
 
-        actor = TestProcessorActor()
+        actor = MockProcessorActor()
         await actor.start()
 
         mock_js.add_stream.assert_called_once_with(
@@ -130,7 +131,7 @@ class TestBaseActor:
         mock_connect, mock_nc, mock_js = mock_nats_setup
         mock_connect.side_effect = Exception("Connection failed")
 
-        actor = TestProcessorActor()
+        actor = MockProcessorActor()
 
         with pytest.raises(Exception, match="Connection failed"):
             await actor.start()
@@ -141,7 +142,7 @@ class TestBaseActor:
     async def test_actor_stop(self, mock_nats_setup):
         """Test actor stop functionality."""
         mock_connect, mock_nc, mock_js = mock_nats_setup
-        actor = TestProcessorActor()
+        actor = MockProcessorActor()
 
         await actor.start()
         assert actor._running is True
@@ -153,7 +154,7 @@ class TestBaseActor:
     @pytest.mark.asyncio
     async def test_actor_stop_not_running(self):
         """Test stopping actor that's not running."""
-        actor = TestProcessorActor()
+        actor = MockProcessorActor()
 
         # Should not raise exception
         await actor.stop()
@@ -163,7 +164,7 @@ class TestBaseActor:
     async def test_double_start_warning(self, mock_nats_setup):
         """Test starting actor twice shows warning."""
         mock_connect, mock_nc, mock_js = mock_nats_setup
-        actor = TestProcessorActor()
+        actor = MockProcessorActor()
 
         await actor.start()
         assert actor._running is True
@@ -177,7 +178,7 @@ class TestBaseActor:
     async def test_process_message_success(self, mock_nats_setup, sample_message):
         """Test successful message processing."""
         mock_connect, mock_nc, mock_js = mock_nats_setup
-        actor = TestProcessorActor()
+        actor = MockProcessorActor()
 
         # Setup message
         sample_message.route.steps = ["test_processor"]
@@ -185,7 +186,7 @@ class TestBaseActor:
 
         # Create mock NATS message
         mock_msg = MagicMock()
-        mock_msg.data = json.dumps(sample_message.dict()).encode()
+        mock_msg.data = json.dumps(sample_message.model_dump()).encode()
         mock_msg.ack = AsyncMock()
         mock_msg.nak = AsyncMock()
 
@@ -194,7 +195,10 @@ class TestBaseActor:
 
         # Verify processing occurred
         assert len(actor.process_calls) == 1
-        assert actor.process_calls[0] == sample_message.payload
+        # Check core payload fields (payload gets enriched during processing)
+        processed_payload = actor.process_calls[0]
+        assert processed_payload.customer_message == sample_message.payload.customer_message
+        assert processed_payload.customer_email == sample_message.payload.customer_email
         mock_msg.ack.assert_called_once()
         mock_msg.nak.assert_not_called()
 
@@ -202,14 +206,14 @@ class TestBaseActor:
     async def test_process_message_wrong_actor(self, mock_nats_setup, sample_message):
         """Test message processing for wrong actor."""
         mock_connect, mock_nc, mock_js = mock_nats_setup
-        actor = TestProcessorActor(name="wrong_actor")
+        actor = MockProcessorActor(name="wrong_actor")
 
         # Message is for different actor
         sample_message.route.steps = ["correct_actor"]
         sample_message.route.current_step = 0
 
         mock_msg = MagicMock()
-        mock_msg.data = json.dumps(sample_message.dict()).encode()
+        mock_msg.data = json.dumps(sample_message.model_dump()).encode()
         mock_msg.ack = AsyncMock()
         mock_msg.nak = AsyncMock()
 
@@ -225,7 +229,7 @@ class TestBaseActor:
     async def test_process_message_timeout(self, mock_nats_setup, sample_message):
         """Test message processing timeout."""
         mock_connect, mock_nc, mock_js = mock_nats_setup
-        actor = TestProcessorActor()
+        actor = MockProcessorActor()
         actor.processing_timeout = 0.01  # Very short timeout
 
         # Make process method slow
@@ -239,7 +243,7 @@ class TestBaseActor:
         sample_message.route.current_step = 0
 
         mock_msg = MagicMock()
-        mock_msg.data = json.dumps(sample_message.dict()).encode()
+        mock_msg.data = json.dumps(sample_message.model_dump()).encode()
         mock_msg.ack = AsyncMock()
         mock_msg.nak = AsyncMock()
 
@@ -254,14 +258,14 @@ class TestBaseActor:
     async def test_process_message_exception(self, mock_nats_setup, sample_message):
         """Test message processing with exception."""
         mock_connect, mock_nc, mock_js = mock_nats_setup
-        actor = TestProcessorActor()
+        actor = MockProcessorActor()
         actor.process_exception = ValueError("Test exception")
 
         sample_message.route.steps = ["test_processor"]
         sample_message.route.current_step = 0
 
         mock_msg = MagicMock()
-        mock_msg.data = json.dumps(sample_message.dict()).encode()
+        mock_msg.data = json.dumps(sample_message.model_dump()).encode()
         mock_msg.ack = AsyncMock()
         mock_msg.nak = AsyncMock()
 
@@ -276,14 +280,14 @@ class TestBaseActor:
     async def test_message_routing_advance(self, mock_nats_setup, sample_message):
         """Test message routing to next actor."""
         mock_connect, mock_nc, mock_js = mock_nats_setup
-        actor = TestProcessorActor()
+        actor = MockProcessorActor()
 
         # Setup multi-step route
         sample_message.route.steps = ["test_processor", "next_actor"]
         sample_message.route.current_step = 0
 
         mock_msg = MagicMock()
-        mock_msg.data = json.dumps(sample_message.dict()).encode()
+        mock_msg.data = json.dumps(sample_message.model_dump()).encode()
         mock_msg.ack = AsyncMock()
 
         await actor.start()
@@ -299,14 +303,14 @@ class TestBaseActor:
     async def test_message_routing_complete(self, mock_nats_setup, sample_message):
         """Test message routing completion."""
         mock_connect, mock_nc, mock_js = mock_nats_setup
-        actor = TestProcessorActor()
+        actor = MockProcessorActor()
 
         # Setup single-step route (will be complete after processing)
         sample_message.route.steps = ["test_processor"]
         sample_message.route.current_step = 0
 
         mock_msg = MagicMock()
-        mock_msg.data = json.dumps(sample_message.dict()).encode()
+        mock_msg.data = json.dumps(sample_message.model_dump()).encode()
         mock_msg.ack = AsyncMock()
 
         await actor.start()
@@ -319,7 +323,7 @@ class TestBaseActor:
     async def test_error_handling_with_retries(self, mock_nats_setup, sample_message):
         """Test error handling with retry logic."""
         mock_connect, mock_nc, mock_js = mock_nats_setup
-        actor = TestProcessorActor()
+        actor = MockProcessorActor()
         actor.max_retries = 2
         actor.retry_delay = 0.01  # Fast retry for testing
         actor.process_exception = ValueError("Retry test")
@@ -329,7 +333,7 @@ class TestBaseActor:
         sample_message.metadata["retry_count"] = 0
 
         mock_msg = MagicMock()
-        mock_msg.data = json.dumps(sample_message.dict()).encode()
+        mock_msg.data = json.dumps(sample_message.model_dump()).encode()
         mock_msg.ack = AsyncMock()
         mock_msg.nak = AsyncMock()
 
@@ -344,7 +348,7 @@ class TestBaseActor:
     async def test_error_handling_max_retries(self, mock_nats_setup, sample_message):
         """Test error handling when max retries exceeded."""
         mock_connect, mock_nc, mock_js = mock_nats_setup
-        actor = TestProcessorActor()
+        actor = MockProcessorActor()
         actor.max_retries = 2
         actor.process_exception = ValueError("Max retry test")
 
@@ -354,7 +358,7 @@ class TestBaseActor:
         sample_message.metadata["retry_count"] = 3  # Already at max retries
 
         mock_msg = MagicMock()
-        mock_msg.data = json.dumps(sample_message.dict()).encode()
+        mock_msg.data = json.dumps(sample_message.model_dump()).encode()
         mock_msg.ack = AsyncMock()
         mock_msg.nak = AsyncMock()
 
@@ -371,27 +375,27 @@ class TestBaseActor:
     async def test_send_message(self, mock_nats_setup, sample_message):
         """Test sending message to specific subject."""
         mock_connect, mock_nc, mock_js = mock_nats_setup
-        actor = TestProcessorActor()
+        actor = MockProcessorActor()
 
         await actor.start()
         await actor.send_message("test.subject", sample_message)
 
-        mock_js.publish.assert_called_once_with("test.subject", json.dumps(sample_message.dict()).encode())
+        mock_js.publish.assert_called_once_with("test.subject", json.dumps(sample_message.model_dump()).encode())
 
     @pytest.mark.asyncio
     async def test_send_message_not_started(self, sample_message):
         """Test sending message when actor not started."""
-        actor = TestProcessorActor()
+        actor = MockProcessorActor()
 
         with pytest.raises(RuntimeError, match="Actor not started"):
             await actor.send_message("test.subject", sample_message)
 
     def test_actor_repr(self):
         """Test actor string representation."""
-        actor = TestProcessorActor(name="test_actor")
+        actor = MockProcessorActor(name="test_actor")
 
         repr_str = repr(actor)
-        assert "TestProcessorActor" in repr_str
+        assert "MockProcessorActor" in repr_str
         assert "test_actor" in repr_str
         assert "running=False" in repr_str
 
@@ -401,13 +405,13 @@ class TestProcessorActor:
 
     def test_processor_actor_inheritance(self):
         """Test ProcessorActor inherits from BaseActor."""
-        actor = TestProcessorActor()
+        actor = MockProcessorActor()
         assert isinstance(actor, BaseActor)
         assert isinstance(actor, ProcessorActor)
 
     def test_processor_actor_initialization(self):
         """Test ProcessorActor initialization."""
-        actor = TestProcessorActor(name="processor_test", nats_url="nats://test:4222")
+        actor = MockProcessorActor(name="processor_test", nats_url="nats://test:4222")
 
         assert actor.name == "processor_test"
         assert actor.nats_url == "nats://test:4222"
@@ -418,7 +422,7 @@ class TestRouterActor:
 
     def test_router_actor_inheritance(self):
         """Test RouterActor inherits from BaseActor."""
-        actor = TestRouterActor()
+        actor = MockRouterActor()
         assert isinstance(actor, BaseActor)
         assert isinstance(actor, RouterActor)
 
@@ -426,13 +430,13 @@ class TestRouterActor:
     async def test_router_custom_routing(self, mock_nats_setup, sample_message):
         """Test router actor custom routing logic."""
         mock_connect, mock_nc, mock_js = mock_nats_setup
-        router = TestRouterActor()
+        router = MockRouterActor()
 
         sample_message.route.steps = ["test_router"]
         sample_message.route.current_step = 0
 
         mock_msg = MagicMock()
-        mock_msg.data = json.dumps(sample_message.dict()).encode()
+        mock_msg.data = json.dumps(sample_message.model_dump()).encode()
         mock_msg.ack = AsyncMock()
 
         await router.start()
@@ -446,14 +450,14 @@ class TestRouterActor:
     async def test_router_routing_exception(self, mock_nats_setup, sample_message):
         """Test router actor routing exception."""
         mock_connect, mock_nc, mock_js = mock_nats_setup
-        router = TestRouterActor()
+        router = MockRouterActor()
         router.route_exception = ValueError("Routing failed")
 
         sample_message.route.steps = ["test_router"]
         sample_message.route.current_step = 0
 
         mock_msg = MagicMock()
-        mock_msg.data = json.dumps(sample_message.dict()).encode()
+        mock_msg.data = json.dumps(sample_message.model_dump()).encode()
         mock_msg.ack = AsyncMock()
         mock_msg.nak = AsyncMock()
 
@@ -473,9 +477,9 @@ class TestActorUtilities:
         mock_connect, mock_nc, mock_js = mock_nats_setup
 
         actors = [
-            TestProcessorActor(name="actor1"),
-            TestProcessorActor(name="actor2"),
-            TestProcessorActor(name="actor3"),
+            MockProcessorActor(name="actor1"),
+            MockProcessorActor(name="actor2"),
+            MockProcessorActor(name="actor3"),
         ]
 
         await start_multiple_actors(actors)
@@ -489,9 +493,9 @@ class TestActorUtilities:
         mock_connect, mock_nc, mock_js = mock_nats_setup
 
         actors = [
-            TestProcessorActor(name="actor1"),
-            TestProcessorActor(name="actor2"),
-            TestProcessorActor(name="actor3"),
+            MockProcessorActor(name="actor1"),
+            MockProcessorActor(name="actor2"),
+            MockProcessorActor(name="actor3"),
         ]
 
         # Start them first
@@ -508,12 +512,16 @@ class TestActorUtilities:
         """Test run_actors_forever with keyboard interrupt."""
         mock_connect, mock_nc, mock_js = mock_nats_setup
 
-        actors = [TestProcessorActor(name="actor1")]
+        actors = [MockProcessorActor(name="actor1")]
 
         # Mock keyboard interrupt after short delay
-        async def interrupt_after_delay():
-            await asyncio.sleep(0.1)
-            raise KeyboardInterrupt()
+        call_count = 0
+        async def interrupt_after_delay(*args):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:  # Interrupt on second call
+                raise KeyboardInterrupt()
+            await asyncio.sleep(0.01)  # Small delay to avoid tight loop
 
         with patch("asyncio.sleep", side_effect=interrupt_after_delay):
             await run_actors_forever(actors)
@@ -527,7 +535,7 @@ class TestActorUtilities:
         mock_connect, mock_nc, mock_js = mock_nats_setup
         mock_connect.side_effect = Exception("Startup failed")
 
-        actors = [TestProcessorActor(name="actor1")]
+        actors = [MockProcessorActor(name="actor1")]
 
         with pytest.raises(Exception, match="Startup failed"):
             await run_actors_forever(actors)
@@ -540,13 +548,13 @@ class TestActorTaskManagement:
     async def test_task_cleanup_on_completion(self, mock_nats_setup, sample_message):
         """Test that completed tasks are cleaned up."""
         mock_connect, mock_nc, mock_js = mock_nats_setup
-        actor = TestProcessorActor()
+        actor = MockProcessorActor()
 
         sample_message.route.steps = ["test_processor"]
         sample_message.route.current_step = 0
 
         mock_msg = MagicMock()
-        mock_msg.data = json.dumps(sample_message.dict()).encode()
+        mock_msg.data = json.dumps(sample_message.model_dump()).encode()
         mock_msg.ack = AsyncMock()
 
         await actor.start()
@@ -564,7 +572,7 @@ class TestActorTaskManagement:
     async def test_task_cancellation_on_stop(self, mock_nats_setup):
         """Test that tasks are cancelled when actor stops."""
         mock_connect, mock_nc, mock_js = mock_nats_setup
-        actor = TestProcessorActor()
+        actor = MockProcessorActor()
 
         await actor.start()
 
@@ -589,7 +597,7 @@ class TestActorErrorScenarios:
     async def test_malformed_message_data(self, mock_nats_setup):
         """Test handling of malformed message data."""
         mock_connect, mock_nc, mock_js = mock_nats_setup
-        actor = TestProcessorActor()
+        actor = MockProcessorActor()
 
         mock_msg = MagicMock()
         mock_msg.data = b"invalid json data"
@@ -610,8 +618,9 @@ class TestActorErrorScenarios:
         mock_js.stream_info.side_effect = Exception("Stream not found")
         mock_js.add_stream.side_effect = Exception("Stream creation failed")
 
-        actor = TestProcessorActor()
+        actor = MockProcessorActor()
 
+        # Should raise exception on stream creation failure
         with pytest.raises(Exception, match="Stream creation failed"):
             await actor.start()
 
@@ -621,8 +630,9 @@ class TestActorErrorScenarios:
         mock_connect, mock_nc, mock_js = mock_nats_setup
         mock_js.subscribe.side_effect = Exception("Subscription failed")
 
-        actor = TestProcessorActor()
+        actor = MockProcessorActor()
 
+        # Should raise exception on subscription failure
         with pytest.raises(Exception, match="Subscription failed"):
             await actor.start()
 
@@ -632,13 +642,13 @@ class TestActorErrorScenarios:
         mock_connect, mock_nc, mock_js = mock_nats_setup
         mock_js.publish.side_effect = Exception("Publish failed")
 
-        actor = TestProcessorActor()
+        actor = MockProcessorActor()
 
         sample_message.route.steps = ["test_processor", "next_actor"]
         sample_message.route.current_step = 0
 
         mock_msg = MagicMock()
-        mock_msg.data = json.dumps(sample_message.dict()).encode()
+        mock_msg.data = json.dumps(sample_message.model_dump()).encode()
         mock_msg.ack = AsyncMock()
         mock_msg.nak = AsyncMock()
 
