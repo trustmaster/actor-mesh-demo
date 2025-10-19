@@ -8,9 +8,9 @@ them back to the API Gateway or other response handlers.
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
-from models.message import Message
+from models.message import Message, MessagePayload
 
 from actors.base import BaseActor
 
@@ -37,15 +37,265 @@ class ResponseAggregator(BaseActor):
         self.responses_delivered = 0
         self.delivery_failures = 0
 
-    async def process(self, message: Message) -> None:
+    async def process(self, payload: MessagePayload) -> Optional[Dict[str, Any]]:
         """
         Process final response and deliver to appropriate handler.
 
         Args:
-            message: The message with final response to aggregate and deliver
+            payload: The message payload with final response to aggregate and deliver
+
+        Returns:
+            None as this is the final step in the pipeline
         """
         try:
-            self.logger.info(f"Aggregating response for message {message.message_id}")
+            # We need access to the full message for routing, but base class only provides payload
+            # This is a limitation of the current architecture - we'll work around it
+
+            self.logger.info(f"Processing final response for customer: {payload.customer_email}")
+
+            # Validate payload has response
+            if not payload.response:
+                self.logger.warning(f"Payload has no response - generating fallback")
+                payload.response = self._generate_fallback_response_from_payload(payload)
+
+            # Since we don't have access to the full message, we'll create a response data structure
+            # and publish it directly to the gateway response subject
+            response_data = self._prepare_response_data_from_payload(payload)
+
+            # Deliver response directly
+            await self._deliver_response_from_payload(response_data)
+
+            # Update statistics
+            self.responses_processed += 1
+            self.responses_delivered += 1
+
+            self.logger.info(f"Successfully delivered response for customer {payload.customer_email}")
+
+            # Return None as this is the final step
+            return None
+
+        except Exception as e:
+            self.delivery_failures += 1
+            self.logger.error(f"Error aggregating response for customer {payload.customer_email}: {str(e)}")
+            await self._handle_delivery_error_from_payload(payload, str(e))
+            return None
+
+    def _prepare_response_data_from_payload(self, payload: MessagePayload) -> Dict[str, Any]:
+        """
+        Prepare response data for delivery from payload only.
+
+        Args:
+            payload: The processed message payload
+
+        Returns:
+            Response data dictionary
+        """
+        # Extract key response information
+        response_data = {
+            "message_id": "unknown",  # Not available from payload
+            "session_id": "unknown",  # Not available from payload
+            "response": payload.response,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+        # Add processing metadata
+        metadata = {
+            "processing_complete": True,
+            "route_completed": True,  # Assume complete since we're at the final step
+        }
+
+        # Add enrichment summary
+        enrichments = self._summarize_enrichments_from_payload(payload)
+        if enrichments:
+            metadata["enrichments"] = enrichments
+
+        # Add error information if present
+        if payload.error:
+            metadata["error_occurred"] = True
+            metadata["error_type"] = payload.error.get("type")
+            metadata["recovery_attempts"] = len(payload.recovery_log)
+
+        # Add execution results if present
+        if payload.execution_result:
+            metadata["actions_executed"] = True
+            execution_result = payload.execution_result
+            metadata["execution_summary"] = {
+                "success": execution_result.get("success", False),
+                "actions_count": len(execution_result.get("actions", [])),
+            }
+
+        # Add guardrail information
+        if payload.guardrail_check:
+            metadata["guardrails"] = {
+                "passed": payload.guardrail_check.get("passed", True),
+                "checks_performed": len(payload.guardrail_check.get("checks", [])),
+            }
+
+        # Add escalation information if present
+        context = payload.context or {}
+        if "escalation" in context:
+            metadata["escalated"] = True
+            metadata["escalation_info"] = context["escalation"]
+
+        response_data["metadata"] = metadata
+
+        return response_data
+
+    def _summarize_enrichments_from_payload(self, payload: MessagePayload) -> Dict[str, bool]:
+        """Create summary of enrichments applied to the payload."""
+        enrichments = {}
+
+        if payload.sentiment:
+            enrichments["sentiment_analysis"] = True
+
+        if payload.intent:
+            enrichments["intent_classification"] = True
+
+        if payload.context:
+            enrichments["context_retrieval"] = True
+
+        if payload.api_data:
+            enrichments["api_data_gathered"] = True
+
+        if payload.action_plan:
+            enrichments["action_planning"] = True
+
+        if payload.guardrail_check:
+            enrichments["guardrail_validation"] = True
+
+        if payload.execution_result:
+            enrichments["action_execution"] = True
+
+        return enrichments
+
+    async def _deliver_response_from_payload(self, response_data: Dict[str, Any]) -> None:
+        """
+        Deliver response to the gateway (default delivery target).
+
+        Args:
+            response_data: Prepared response data
+        """
+        # Always deliver to default response subject since we don't have full message context
+        delivery_subject = self.default_response_subject
+
+        try:
+            # Convert to JSON and publish
+            response_json = json.dumps(response_data)
+            await self.nc.publish(delivery_subject, response_json.encode())
+
+            self.logger.debug(f"Delivered response to {delivery_subject}")
+
+        except Exception as e:
+            self.logger.error(f"Failed to deliver response to {delivery_subject}: {str(e)}")
+            raise
+
+    def _get_delivery_subject(self, message: Message) -> str:
+        """
+        Determine the NATS subject for response delivery.
+
+        Args:
+            message: The message being processed
+
+        Returns:
+            NATS subject for delivery
+        """
+        # Check if message has specific delivery instructions
+        metadata = message.metadata
+        if "response_subject" in metadata:
+            return metadata["response_subject"]
+
+        # Check if this is an API request
+        if metadata.get("api_request"):
+            return self.default_response_subject
+
+        # Check for session-specific delivery
+        if message.session_id:
+            return f"ecommerce.support.response.session.{message.session_id}"
+
+        # Default delivery
+        return self.default_response_subject
+
+    def _generate_fallback_response_from_payload(self, payload: MessagePayload) -> str:
+        """
+        Generate a fallback response when none exists.
+
+        Args:
+            payload: The message payload without a response
+
+        Returns:
+            Fallback response text
+        """
+        self.logger.warning(f"Generating fallback response for customer {payload.customer_email}")
+
+        # Try to create contextual fallback based on what we know
+        intent = payload.intent or {}
+        intent_type = intent.get("intent", "general_inquiry")
+
+        if intent_type == "order_status":
+            return """Thank you for your inquiry about your order.
+
+I apologize that I couldn't retrieve your specific order details at the moment. Please check your email for order confirmation and tracking information, or contact our customer service team for personalized assistance.
+
+We appreciate your business and are here to help."""
+
+        elif intent_type in ["refund_request", "billing_inquiry"]:
+            return """Thank you for contacting us about your billing inquiry.
+
+Our customer service team is best equipped to help you with account-specific matters. Please contact them directly, and they'll be happy to review your account and assist you with any billing questions or refund requests.
+
+We value your business and want to ensure you receive the best possible service."""
+
+        else:
+            return """Thank you for reaching out to us.
+
+While I wasn't able to provide a specific response to your inquiry, our customer service team is available to assist you with personalized help for any questions or concerns you may have.
+
+We appreciate your patience and look forward to serving you."""
+
+    async def _handle_delivery_error_from_payload(self, payload: MessagePayload, error: str) -> None:
+        """
+        Handle errors during response delivery.
+
+        Args:
+            payload: The payload that failed to deliver
+            error: Error description
+        """
+        self.logger.error(f"Delivery error for customer {payload.customer_email}: {error}")
+
+        # Try alternative delivery methods
+        try:
+            # Attempt delivery to error subject
+            error_subject = "ecommerce.support.error.delivery"
+            error_data = {
+                "customer_email": payload.customer_email,
+                "error": error,
+                "original_response": payload.response,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+
+            error_json = json.dumps(error_data)
+            await self.nc.publish(error_subject, error_json.encode())
+
+            self.logger.info(f"Sent delivery error notification for customer {payload.customer_email}")
+
+        except Exception as fallback_error:
+            self.logger.critical(f"Failed to send error notification: {fallback_error}")
+
+    async def _enrich_payload(self, payload: MessagePayload, result: Dict[str, Any]) -> None:
+        """
+        Override to prevent enrichment - this is the final step.
+
+        Args:
+            payload: The message payload (not modified)
+            result: Processing result (ignored)
+        """
+        # No enrichment needed - this is the final step in the pipeline
+        pass
+
+    async def _route_to_next(self, message: Message) -> None:
+        """Override routing to deliver response to gateway instead of continuing pipeline."""
+        try:
+            self.logger.info(f"Delivering final response for message {message.message_id}")
 
             # Validate message has response
             if not message.payload.response:
@@ -55,18 +305,17 @@ class ResponseAggregator(BaseActor):
             # Prepare response data
             response_data = self._prepare_response_data(message)
 
-            # Deliver response
+            # Deliver response to gateway
             await self._deliver_response(message, response_data)
 
             # Update statistics
-            self.responses_processed += 1
             self.responses_delivered += 1
 
             self.logger.info(f"Successfully delivered response for message {message.message_id}")
 
         except Exception as e:
             self.delivery_failures += 1
-            self.logger.error(f"Error aggregating response for message {message.message_id}: {str(e)}")
+            self.logger.error(f"Error delivering response for message {message.message_id}: {str(e)}")
             await self._handle_delivery_error(message, str(e))
 
     def _prepare_response_data(self, message: Message) -> Dict[str, Any]:
@@ -194,32 +443,6 @@ class ResponseAggregator(BaseActor):
         except Exception as e:
             self.logger.error(f"Failed to deliver response to {delivery_subject}: {str(e)}")
             raise
-
-    def _get_delivery_subject(self, message: Message) -> str:
-        """
-        Determine the NATS subject for response delivery.
-
-        Args:
-            message: The message being processed
-
-        Returns:
-            NATS subject for delivery
-        """
-        # Check if message has specific delivery instructions
-        metadata = message.metadata
-        if "response_subject" in metadata:
-            return metadata["response_subject"]
-
-        # Check if this is an API request
-        if metadata.get("api_request"):
-            return self.default_response_subject
-
-        # Check for session-specific delivery
-        if message.session_id:
-            return f"ecommerce.support.response.session.{message.session_id}"
-
-        # Default delivery
-        return self.default_response_subject
 
     def _generate_fallback_response(self, message: Message) -> str:
         """

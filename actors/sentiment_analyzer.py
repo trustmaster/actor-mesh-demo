@@ -378,7 +378,18 @@ if __name__ == "__main__":
 
     analyzer = SentimentAnalyzer(args.nats_url)
 
+    async def run_actor():
+        await analyzer.start()
+        try:
+            # Keep the actor running
+            while True:
+                await asyncio.sleep(1)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            await analyzer.stop()
+
     try:
-        asyncio.run(analyzer.start())
+        asyncio.run(run_actor())
     except KeyboardInterrupt:
-        asyncio.run(analyzer.stop())
+        pass
