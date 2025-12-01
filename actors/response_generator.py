@@ -76,7 +76,10 @@ class ResponseGenerator(ProcessorActor):
             "name": "TechMart",
             "return_policy": "30-day return policy for most items",
             "shipping_policy": "Free shipping on orders over $50",
-            "contact_info": "Available 24/7 via chat, phone, or email",
+            "contact_email": "support@techmart.com",
+            "contact_phone": "1-800-TECHMART",
+            "contact_info": "Available 24/7 via chat, phone (1-800-TECHMART), or email (support@techmart.com)",
+            "support_hours": "24/7 customer support",
             "warranty": "1-year manufacturer warranty on electronics",
         }
 
@@ -199,6 +202,7 @@ class ResponseGenerator(ProcessorActor):
 
         customer_context = context.get("customer_context", {})
         customer_summary = customer_context.get("summary", {})
+        conversation_history = customer_context.get("conversation_history", {})
 
         # Build context information
         context_info = []
@@ -223,11 +227,22 @@ class ResponseGenerator(ProcessorActor):
                 entity_value = entity.get("value", "")
                 entity_info.append(f"{entity_type}: {entity_value}")
 
+        # Build conversation history context
+        conversation_context = self._format_conversation_history(conversation_history)
+
+        # Extract key entities from conversation history
+        key_entities = self._extract_key_entities_from_history(conversation_history)
+        entities_summary = ""
+        if key_entities:
+            entities_summary = f"\n\nKEY INFORMATION FROM CONVERSATION:\n{key_entities}"
+
         prompt = f"""
 You are a professional customer service agent for {self.company_info["name"]}. Generate a helpful, empathetic response to the customer's message.
 
 Customer Message: "{customer_message}"
 Customer Email: {customer_email}
+
+{conversation_context}{entities_summary}
 
 Analysis Results:
 - Sentiment: {sentiment_label} (Urgency: {urgency_level})
@@ -238,19 +253,57 @@ Analysis Results:
 Customer Context:
 {chr(10).join(["- " + info for info in context_info]) if context_info else "- No additional context available"}
 
-Guidelines:
-1. Match the tone to the customer's sentiment ({sentiment_label})
-2. Address their specific intent ({intent_category})
-3. Be more empathetic and apologetic for complaints
-4. Use extracted entities (order numbers, etc.) when relevant
-5. Consider customer tier and history in your response
-6. Suggest specific next steps or actions
-7. Escalate to human agent if needed for complex issues
+IMPORTANT CONSTRAINTS:
+- The customer's email is: {customer_email} - DO NOT use this as a contact method in your response
+- For contact information, use: {self.company_info["contact_info"]}
+- Support email: {self.company_info["contact_email"]}
+- Support phone: {self.company_info["contact_phone"]}
+- NEVER say "reach out to me at {customer_email}" or include the customer's email as a contact
+
+CRITICAL GUIDELINES - YOU MUST FOLLOW THESE:
+
+1. **MAINTAIN CONVERSATION CONTEXT** (HIGHEST PRIORITY):
+   - Review the conversation history carefully before responding
+   - Extract and remember ALL key information: order numbers, product IDs, issue descriptions, tracking numbers
+   - NEVER ask for information that was already provided in the conversation
+   - If an order number (e.g., ord-12345, ORD-12345, #12345) was mentioned, USE IT - do not ask again
+   - If the customer refers to "my order" and an order number was mentioned earlier, use that number
+   - **CRITICAL**: If the customer explicitly stated information (like "my order number is ord-12345"), ALWAYS use that exact information
+   - **CRITICAL**: Customer-stated information ALWAYS takes priority over API/system data in "Customer Context"
+   - The "KEY INFORMATION FROM CONVERSATION" section contains what the customer actually told you - use this first
+
+2. **BUILD ON PREVIOUS EXCHANGES**:
+   - Reference what was previously discussed: "As we discussed about your order #12345..."
+   - If you or the customer mentioned something, acknowledge it
+   - If you said you'd check on something, provide an update or status
+   - Show continuity in every response
+
+3. **ENTITY TRACKING**:
+   - Pay special attention to: order numbers, tracking IDs, product names, dates, amounts
+   - Keep these in mind throughout the entire conversation
+   - Use them in your response when relevant
+   - These should NEVER need to be re-requested
+
+4. **TONE AND SENTIMENT**:
+   - Match the tone to the customer's sentiment ({sentiment_label})
+   - Be more empathetic and apologetic for complaints
+   - Acknowledge their concerns specifically
+
+5. **ACTIONABLE RESPONSES**:
+   - Provide specific next steps or actions
+   - Use customer context (tier, history) to personalize
+   - Escalate to human agent if needed for complex issues
+
+6. **COMPANY CONTACT INFORMATION**:
+   - Use company contact: {self.company_info["contact_info"]}
+   - NEVER use the customer's email ({customer_email}) as a contact method
+   - Direct them to proper support channels: {self.company_info["contact_email"]} or {self.company_info["contact_phone"]}
 
 Company Policies:
 - Return Policy: {self.company_info["return_policy"]}
 - Shipping: {self.company_info["shipping_policy"]}
 - Warranty: {self.company_info["warranty"]}
+- Support: {self.company_info["support_hours"]}
 
 Please respond with a JSON object containing:
 {{
@@ -262,34 +315,144 @@ Please respond with a JSON object containing:
   "reasoning": "Brief explanation of your approach"
 }}
 
-Focus on being helpful, professional, and resolving the customer's issue effectively.
+REMEMBER: This is a CONTINUING conversation. Use ALL available context. NEVER ask for information already provided. Build on previous exchanges naturally.
 """
         return prompt
 
-    def _validate_llm_response(self, response: Dict[str, Any]) -> Dict[str, Any]:
+    def _extract_key_entities_from_history(self, conversation_history: Dict) -> str:
+        """Extract key entities from conversation history for emphasis."""
+        if not conversation_history:
+            return ""
+
+        current_session = conversation_history.get("current_session_messages", [])
+        if not current_session:
+            return ""
+
+        # Extract order numbers, tracking IDs, etc.
+        import re
+        entities = {
+            "order_numbers": set(),
+            "tracking_numbers": set(),
+            "product_ids": set(),
+            "issues_mentioned": []
+        }
+
+        for msg in current_session:
+            content = msg.get("content", "")
+            message_type = msg.get("message_type", "")
+
+            # Only extract entities from customer messages to avoid confusion
+            # (agent responses may reference mock data or other order numbers)
+            if message_type != "customer":
+                continue
+
+            # Extract order numbers (various formats)
+            order_matches = re.findall(r'(?:order[#\s-]*|ord[#\s-]*)([a-z0-9-]+)', content, re.IGNORECASE)
+            entities["order_numbers"].update(order_matches)
+
+            # Extract tracking numbers
+            tracking_matches = re.findall(r'(?:tracking[#\s-]*|track[#\s-]*)([a-z0-9-]+)', content, re.IGNORECASE)
+            entities["tracking_numbers"].update(tracking_matches)
+
+            # Extract product IDs
+            product_matches = re.findall(r'(?:product[#\s-]*|item[#\s-]*)([a-z0-9-]+)', content, re.IGNORECASE)
+            entities["product_ids"].update(product_matches)
+
+            # Track issues mentioned by customer
+            if True:  # Already filtered to customer messages above
+                if any(word in content.lower() for word in ["damaged", "broken", "defective"]):
+                    entities["issues_mentioned"].append("damaged/defective product")
+                if any(word in content.lower() for word in ["late", "delayed", "not arrived", "haven't received"]):
+                    entities["issues_mentioned"].append("delivery delay")
+                if any(word in content.lower() for word in ["wrong", "incorrect", "mistake"]):
+                    entities["issues_mentioned"].append("wrong item")
+                if any(word in content.lower() for word in ["refund", "return", "send back"]):
+                    entities["issues_mentioned"].append("return/refund request")
+
+        # Format summary
+        summary_parts = []
+
+        if entities["order_numbers"]:
+            summary_parts.append(f"- Order Number(s): {', '.join(entities['order_numbers'])}")
+
+        if entities["tracking_numbers"]:
+            summary_parts.append(f"- Tracking Number(s): {', '.join(entities['tracking_numbers'])}")
+
+        if entities["product_ids"]:
+            summary_parts.append(f"- Product ID(s): {', '.join(entities['product_ids'])}")
+
+        if entities["issues_mentioned"]:
+            summary_parts.append(f"- Issues: {', '.join(set(entities['issues_mentioned']))}")
+
+        return "\n".join(summary_parts) if summary_parts else ""
+
+    def _format_conversation_history(self, conversation_history: Dict) -> str:
+        """Format conversation history for inclusion in the prompt."""
+        if not conversation_history:
+            return "Conversation History: This is the start of a new conversation."
+
+        current_session = conversation_history.get("current_session_messages", [])
+        recent_messages = conversation_history.get("recent_messages", [])
+        session_count = conversation_history.get("session_count", 0)
+
+        history_text = []
+
+        # Add session context
+        if session_count > 1:
+            history_text.append(f"This customer has had {session_count} previous conversation sessions.")
+
+        # Format current session messages
+        if current_session:
+            history_text.append("\nCurrent Conversation:")
+            for msg in current_session[-5:]:  # Show last 5 messages from current session
+                msg_type = "Customer" if msg["message_type"] == "customer" else "Agent"
+                timestamp = msg["created_at"]
+                content = msg["content"]
+                history_text.append(f"  {msg_type} ({timestamp}): {content}")
+        else:
+            history_text.append("\nCurrent Conversation: This is the first message in this session.")
+
+        # Add recent messages from other sessions (if any and different from current)
+        if recent_messages and session_count > 1:
+            other_session_messages = [
+                msg for msg in recent_messages
+                if not any(current_msg["content"] == msg["content"] for current_msg in current_session)
+            ][:3]  # Show up to 3 recent messages from other sessions
+
+            if other_session_messages:
+                history_text.append("\nRecent Messages from Previous Sessions:")
+                for msg in other_session_messages:
+                    msg_type = "Customer" if msg["message_type"] == "customer" else "Agent"
+                    timestamp = msg["created_at"]
+                    content = msg["content"]
+                    history_text.append(f"  {msg_type} ({timestamp}): {content}")
+
+        return "\n".join(history_text) if history_text else "Conversation History: This is the start of a new conversation."
+
+    def _validate_llm_response(self, response_data: Dict) -> Dict[str, Any]:
         """Validate and clean up LLM response."""
         # Ensure required fields
-        if "text" not in response or not response["text"].strip():
+        if "text" not in response_data or not response_data["text"].strip():
             return None
 
         # Validate tone
         valid_tones = ["professional", "empathetic", "apologetic", "friendly"]
-        if "tone" not in response or response["tone"] not in valid_tones:
-            response["tone"] = "professional"
+        if "tone" not in response_data or response_data["tone"] not in valid_tones:
+            response_data["tone"] = "professional"
 
         # Validate confidence
-        if "confidence" not in response or not (0 <= response.get("confidence", 0) <= 1):
-            response["confidence"] = 0.8
+        if "confidence" not in response_data or not (0 <= response_data.get("confidence", 0) <= 1):
+            response_data["confidence"] = 0.8
 
         # Ensure action_items is a list
-        if "action_items" not in response or not isinstance(response["action_items"], list):
-            response["action_items"] = []
+        if "action_items" not in response_data or not isinstance(response_data["action_items"], list):
+            response_data["action_items"] = []
 
         # Ensure escalation_needed is boolean
-        if "escalation_needed" not in response:
-            response["escalation_needed"] = False
+        if "escalation_needed" not in response_data:
+            response_data["escalation_needed"] = False
 
-        return response
+        return response_data
 
     async def _generate_with_template(
         self, payload: MessagePayload, sentiment: Dict, intent: Dict, context: Dict

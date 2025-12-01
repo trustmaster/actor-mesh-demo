@@ -473,6 +473,7 @@
                 </div>
             </div>
             <button class="reconnect-button" id="reconnectButton" style="display: none;">Reconnect</button>
+            <button class="reconnect-button" id="newSessionButton" style="display: inline-block; background: #2196F3;">🔄 New Chat</button>
         </div>
 
         <div class="chat-messages" id="chatMessages">
@@ -515,7 +516,8 @@
     <script>
         class WebSocketChatWidget {
             constructor() {
-                this.sessionId = this.generateSessionId();
+                // Try to load existing session from localStorage
+                this.sessionId = this.loadOrCreateSession();
                 this.websocket = null;
                 this.connectionId = null;
                 this.isConnected = false;
@@ -530,6 +532,51 @@
 
                 // Auto-resize textarea
                 this.messageInput.addEventListener('input', this.autoResize.bind(this));
+            }
+
+            loadOrCreateSession() {
+                const SESSION_TIMEOUT = 24 * 60 * 60 * 1000; // 24 hours
+                const savedSessionId = localStorage.getItem('chatSessionId');
+                const savedTimestamp = localStorage.getItem('chatSessionTimestamp');
+                const now = Date.now();
+
+                // Check if session is still valid
+                if (savedSessionId && savedTimestamp) {
+                    const elapsed = now - parseInt(savedTimestamp);
+                    if (elapsed < SESSION_TIMEOUT) {
+                        console.log('Loaded existing session:', savedSessionId);
+                        return savedSessionId;
+                    } else {
+                        console.log('Session expired, creating new one');
+                    }
+                }
+
+                // Create new session
+                const newSessionId = this.generateSessionId();
+                localStorage.setItem('chatSessionId', newSessionId);
+                localStorage.setItem('chatSessionTimestamp', now.toString());
+                console.log('Created new session:', newSessionId);
+                return newSessionId;
+            }
+
+            startNewSession() {
+                const newSessionId = this.generateSessionId();
+                this.sessionId = newSessionId;
+                localStorage.setItem('chatSessionId', newSessionId);
+                localStorage.setItem('chatSessionTimestamp', Date.now().toString());
+
+                // Clear chat messages
+                this.chatMessages.innerHTML = '';
+                this.messageCount = 0;
+                this.messageCountDisplay.textContent = '0';
+
+                // Add system message
+                this.addSystemMessage('🔄 Started new conversation');
+
+                // Update session ID display
+                this.sessionIdDisplay.textContent = this.sessionId.substring(0, 12) + '...';
+
+                console.log('Started new session:', this.sessionId);
             }
 
             initializeElements() {
@@ -569,6 +616,16 @@
 
                 // Update session ID display
                 this.sessionIdDisplay.textContent = this.sessionId.substring(0, 12) + '...';
+
+                // Add New Session button handler (if button exists)
+                const newSessionButton = document.getElementById('newSessionButton');
+                if (newSessionButton) {
+                    newSessionButton.addEventListener('click', () => {
+                        if (confirm('Start a new conversation? Current history will remain saved but won\'t be included in new messages.')) {
+                            this.startNewSession();
+                        }
+                    });
+                }
             }
 
             generateSessionId() {

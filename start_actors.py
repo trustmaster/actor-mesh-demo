@@ -22,6 +22,8 @@ from actors.guardrail_validator import GuardrailValidator
 from actors.execution_coordinator import ExecutionCoordinator
 from actors.escalation_router import EscalationRouter
 from actors.response_aggregator import ResponseAggregator
+from storage.redis_client_simple import init_simplified_redis
+from storage.sqlite_client import init_sqlite
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -51,6 +53,16 @@ class ActorManager:
     async def start_all(self):
         """Start all actors."""
         logger.info("Starting all actors...")
+
+        # Initialize storage systems first
+        logger.info("🔧 Initializing storage systems...")
+        try:
+            await init_simplified_redis()
+            await init_sqlite()
+            logger.info("✅ Storage systems initialized")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize storage systems: {e}")
+            raise
 
         tasks = []
         for actor in self.actors:

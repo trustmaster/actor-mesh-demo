@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 from models.message import MessagePayload
 from storage.redis_client_simple import get_simplified_redis_client
+from storage.sqlite_client import get_sqlite_client
 
 from actors.base import ProcessorActor
 
@@ -60,13 +61,21 @@ class ContextRetriever(ProcessorActor):
         """
         try:
             customer_email = payload.customer_email
+            session_id = payload.session_id  # Now available directly in payload
+
+            # Save customer message immediately so it's in conversation history
+            await self._save_customer_message(payload)
 
             # Check cache first
             redis_client = await get_simplified_redis_client()
             cached_context = await redis_client.get_customer_context(customer_email)
 
+            # Always fetch conversation history (not cached as it changes frequently)
+            conversation_history = await self._fetch_conversation_history(customer_email, session_id)
+
             if cached_context:
                 self.logger.info(f"Retrieved cached context for {customer_email}")
+                cached_context["conversation_history"] = conversation_history
                 return {
                     "customer_context": cached_context,
                     "source": "cache",
@@ -77,8 +86,12 @@ class ContextRetriever(ProcessorActor):
             context = await self._fetch_customer_context(customer_email)
 
             if context:
-                # Cache the context
-                await redis_client.cache_customer_context(customer_email, context)
+                # Add conversation history to context
+                context["conversation_history"] = conversation_history
+
+                # Cache the context (without conversation history to avoid staleness)
+                context_to_cache = {k: v for k, v in context.items() if k != "conversation_history"}
+                await redis_client.cache_customer_context(customer_email, context_to_cache)
 
                 self.logger.info(f"Retrieved fresh context for {customer_email}")
                 return {
@@ -89,7 +102,10 @@ class ContextRetriever(ProcessorActor):
             else:
                 self.logger.warning(f"No context found for {customer_email}")
                 return {
-                    "customer_context": {"error": "Customer not found"},
+                    "customer_context": {
+                        "error": "Customer not found",
+                        "conversation_history": conversation_history
+                    },
                     "source": "error",
                     "retrieved_at": datetime.now(timezone.utc).isoformat(),
                 }
@@ -335,6 +351,106 @@ class ContextRetriever(ProcessorActor):
         summary["risk_factors"] = risk_factors
 
         return summary
+
+    async def _save_customer_message(self, payload: MessagePayload) -> None:
+        """Save customer message immediately for context."""
+        try:
+            from storage.sqlite_client import get_sqlite_client
+            from models.storage import ConversationMessage
+
+            if not payload.session_id or not payload.customer_message:
+                return
+
+            sqlite_client = await get_sqlite_client()
+
+            customer_msg = ConversationMessage(
+                session_id=payload.session_id,
+                message_id=f"msg_customer_{datetime.now(timezone.utc).timestamp()}",
+                customer_email=payload.customer_email,
+                message_type="customer",
+                content=payload.customer_message,
+                metadata={"saved_by": "context_retriever", "early_save": True}
+            )
+
+            await sqlite_client.add_message(customer_msg)
+            self.logger.debug(f"Saved customer message early for session {payload.session_id}")
+
+        except Exception as e:
+            self.logger.warning(f"Failed to save customer message early: {e}")
+            # Don't fail the whole process if this fails
+
+    async def _fetch_conversation_history(self, customer_email: str, session_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Fetch conversation history for the customer.
+
+        Args:
+            customer_email: Customer email address
+            session_id: Current session ID (if available)
+
+        Returns:
+            Dictionary containing conversation history
+        """
+        try:
+            sqlite_client = await get_sqlite_client()
+
+            conversation_history = {
+                "current_session_messages": [],
+                "recent_messages": [],
+                "session_count": 0
+            }
+
+            # Get messages from current session if session_id is provided
+            if session_id:
+                current_session_messages = await sqlite_client.get_messages(session_id, limit=20)
+                conversation_history["current_session_messages"] = [
+                    {
+                        "message_type": msg.message_type,
+                        "content": msg.content,
+                        "created_at": msg.created_at,
+                        "metadata": msg.metadata
+                    }
+                    for msg in current_session_messages
+                ]
+
+            # Get recent messages across all sessions for this customer
+            recent_messages = await sqlite_client.get_recent_messages(customer_email, limit=10)
+            conversation_history["recent_messages"] = [
+                {
+                    "session_id": msg.session_id,
+                    "message_type": msg.message_type,
+                    "content": msg.content,
+                    "created_at": msg.created_at,
+                    "metadata": msg.metadata
+                }
+                for msg in recent_messages
+            ]
+
+            # Get conversation stats for this customer
+            stats = await sqlite_client.get_customer_history(customer_email)
+            conversation_history["session_count"] = len(stats)
+
+            if stats:
+                conversation_history["last_interaction"] = max(
+                    stat["last_updated"] for stat in stats
+                )
+                conversation_history["total_messages"] = sum(
+                    stat["message_count"] for stat in stats
+                )
+
+            self.logger.debug(f"Retrieved conversation history for {customer_email}: "
+                            f"{len(conversation_history['current_session_messages'])} current session messages, "
+                            f"{len(conversation_history['recent_messages'])} recent messages")
+
+            return conversation_history
+
+        except Exception as e:
+            self.logger.error(f"Error fetching conversation history for {customer_email}: {e}")
+            return {
+                "current_session_messages": [],
+                "recent_messages": [],
+                "session_count": 0,
+                "error": str(e)
+            }
 
     async def invalidate_customer_cache(self, customer_email: str) -> bool:
         """

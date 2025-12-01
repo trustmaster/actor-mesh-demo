@@ -384,7 +384,8 @@
     <script>
         class ChatWidget {
             constructor() {
-                this.sessionId = this.generateSessionId();
+                // Try to load existing session from localStorage
+                this.sessionId = this.loadOrCreateSession();
                 this.isConnected = false;
                 this.messageCount = 0;
 
@@ -394,6 +395,47 @@
 
                 // Auto-resize textarea
                 this.messageInput.addEventListener('input', this.autoResize.bind(this));
+            }
+
+            loadOrCreateSession() {
+                const SESSION_TIMEOUT = 24 * 60 * 60 * 1000; // 24 hours
+                const savedSessionId = localStorage.getItem('widgetSessionId');
+                const savedTimestamp = localStorage.getItem('widgetSessionTimestamp');
+                const now = Date.now();
+
+                // Check if session is still valid
+                if (savedSessionId && savedTimestamp) {
+                    const elapsed = now - parseInt(savedTimestamp);
+                    if (elapsed < SESSION_TIMEOUT) {
+                        console.log('Loaded existing session:', savedSessionId);
+                        return savedSessionId;
+                    } else {
+                        console.log('Session expired, creating new one');
+                    }
+                }
+
+                // Create new session
+                const newSessionId = this.generateSessionId();
+                localStorage.setItem('widgetSessionId', newSessionId);
+                localStorage.setItem('widgetSessionTimestamp', now.toString());
+                console.log('Created new session:', newSessionId);
+                return newSessionId;
+            }
+
+            startNewSession() {
+                const newSessionId = this.generateSessionId();
+                this.sessionId = newSessionId;
+                localStorage.setItem('widgetSessionId', newSessionId);
+                localStorage.setItem('widgetSessionTimestamp', Date.now().toString());
+
+                // Clear chat messages
+                this.chatMessages.innerHTML = '';
+                this.messageCount = 0;
+
+                // Add system message
+                this.addSystemMessage('🔄 Started new conversation');
+
+                console.log('Started new session:', this.sessionId);
             }
 
             initializeElements() {

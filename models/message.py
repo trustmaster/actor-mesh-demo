@@ -49,6 +49,7 @@ class MessagePayload(BaseModel):
     # Original input (immutable)
     customer_message: str = Field(description="Original customer message")
     customer_email: str = Field(description="Customer email address")
+    session_id: Optional[str] = Field(default=None, description="Session identifier for conversation history")
 
     # Enrichments (appended by actors)
     sentiment: Optional[Dict[str, Any]] = Field(default=None, description="Sentiment analysis results")

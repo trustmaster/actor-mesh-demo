@@ -275,6 +275,7 @@ class WebSocketManager:
             payload = MessagePayload(
                 customer_message=chat_message.message,
                 customer_email=chat_message.customer_email,
+                session_id=session_id,
             )
 
             # Create route using standard processing pipeline
@@ -290,6 +291,7 @@ class WebSocketManager:
                     "websocket_request": True,
                     "connection_id": connection_id,
                     "gateway_timestamp": datetime.now(timezone.utc).isoformat(),
+                    "session_id": session_id,  # Make session_id available to actors
                 },
             )
 

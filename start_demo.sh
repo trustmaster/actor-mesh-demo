@@ -5,6 +5,9 @@
 
 set -e  # Exit on any error
 
+# Set Docker API version to avoid compatibility issues
+export DOCKER_API_VERSION=1.43
+
 echo "🚀 E-commerce Support Agent - Actor Mesh Demo"
 echo "=============================================="
 echo ""

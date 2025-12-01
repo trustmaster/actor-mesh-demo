@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from models.message import Message, MessagePayload
-from storage.sqlite_client import get_sqlite_client
+from storage.sqlite_client import get_sqlite_client, ConversationMessage
 
 from actors.base import BaseActor
 
@@ -131,35 +131,70 @@ class ResponseAggregator(BaseActor):
         try:
             sqlite_client = await get_sqlite_client()
 
-            # Generate session_id if not available (fallback)
-            session_id = getattr(payload, 'session_id', f"session_{hash(payload.customer_email)}_{datetime.now().strftime('%Y%m%d')}")
+            # Get session_id from payload (Pydantic field)
+            session_id = payload.session_id
 
-            # Log the customer message first (if available)
-            if hasattr(payload, 'customer_message') and payload.customer_message:
-                await sqlite_client.add_message(
-                    session_id=session_id,
-                    message_id=f"msg_customer_{datetime.now().timestamp()}",
-                    customer_email=payload.customer_email,
-                    message_type="customer",
-                    content=payload.customer_message,
-                    metadata=getattr(payload, 'metadata', {})
+            if not session_id:
+                # Fallback (should rarely happen if frontend is fixed)
+                session_id = f"fallback_{hash(payload.customer_email)}_{datetime.now().strftime('%Y%m%d%H')}"
+                self.logger.warning(f"No session_id provided for {payload.customer_email}, using fallback: {session_id}")
+
+            # Skip saving customer message if it was already saved by context_retriever
+            # (check metadata for early_save flag)
+            # We only save the customer message here if it wasn't saved earlier
+            try:
+                messages = await sqlite_client.get_messages(session_id, limit=5)
+                customer_msg_exists = any(
+                    msg.message_type == "customer" and
+                    msg.content == payload.customer_message and
+                    msg.metadata.get("early_save") == True
+                    for msg in messages
                 )
+
+                if not customer_msg_exists and hasattr(payload, 'customer_message') and payload.customer_message:
+                    customer_msg = ConversationMessage(
+                        session_id=session_id,
+                        message_id=f"msg_customer_{datetime.now().timestamp()}",
+                        customer_email=payload.customer_email,
+                        message_type="customer",
+                        content=payload.customer_message,
+                        metadata={"saved_by": "response_aggregator"}
+                    )
+                    await sqlite_client.add_message(customer_msg)
+                    self.logger.debug(f"Saved customer message (not previously saved)")
+                else:
+                    self.logger.debug(f"Customer message already saved, skipping duplicate")
+            except Exception as e:
+                self.logger.warning(f"Error checking for existing customer message: {e}")
+                # If check fails, save it anyway to be safe
+                if hasattr(payload, 'customer_message') and payload.customer_message:
+                    customer_msg = ConversationMessage(
+                        session_id=session_id,
+                        message_id=f"msg_customer_{datetime.now().timestamp()}",
+                        customer_email=payload.customer_email,
+                        message_type="customer",
+                        content=payload.customer_message,
+                        metadata={"saved_by": "response_aggregator"}
+                    )
+                    await sqlite_client.add_message(customer_msg)
 
             # Log the final response
             if payload.response:
-                await sqlite_client.add_message(
+                agent_msg = ConversationMessage(
                     session_id=session_id,
                     message_id=f"msg_response_{datetime.now().timestamp()}",
                     customer_email=payload.customer_email,
                     message_type="agent",
                     content=payload.response,
                     metadata={
-                        "sentiment": getattr(payload, 'sentiment', None),
-                        "intent": getattr(payload, 'intent', None),
+                        "sentiment": payload.sentiment,
+                        "intent": payload.intent,
                         "processing_time": response_data.get("processing_time"),
-                        "validation_passed": getattr(payload, 'validation_passed', None)
+                        "validation_passed": getattr(payload, 'validation_passed', None),
+                        "saved_by": "response_aggregator"
                     }
                 )
+                await sqlite_client.add_message(agent_msg)
 
             # Update conversation summary
             status = "resolved" if getattr(payload, 'validation_passed', True) else "needs_review"

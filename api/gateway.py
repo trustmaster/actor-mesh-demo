@@ -20,6 +20,8 @@ from fastapi.staticfiles import StaticFiles
 from models.message import Message, MessagePayload, Route, StandardRoutes
 from nats.js import JetStreamContext
 from pydantic import BaseModel, Field
+from storage.redis_client_simple import init_simplified_redis
+from storage.sqlite_client import init_sqlite
 
 from api.websocket import websocket_manager
 
@@ -123,6 +125,12 @@ class APIGateway:
     async def startup(self):
         """Initialize connections on startup."""
         try:
+            # Initialize storage systems
+            self.logger.info("Initializing storage systems...")
+            await init_simplified_redis()
+            await init_sqlite()
+            self.logger.info("Storage systems initialized")
+
             # Connect to NATS
             self.nc = await nats.connect(self.nats_url)
             self.js = self.nc.jetstream()
@@ -196,6 +204,7 @@ class APIGateway:
             payload = MessagePayload(
                 customer_message=request.message,
                 customer_email=request.customer_email,
+                session_id=session_id,
             )
 
             # Create route using standard processing pipeline
@@ -210,6 +219,7 @@ class APIGateway:
                 metadata={
                     "api_request": True,
                     "gateway_timestamp": start_time.isoformat(),
+                    "session_id": session_id,  # Make session_id available to actors
                 },
             )
 
