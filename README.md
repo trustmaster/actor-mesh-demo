@@ -50,6 +50,7 @@ graph TB
         RedisCache[(Redis<br/>- Sessions<br/>- Caching<br/>- Health)]
         SqliteDb[(SQLite<br/>- History<br/>- Analytics<br/>- Audit)]
         MockServices[Mock Services<br/>- Customer API<br/>- Orders API<br/>- Delivery Tracking API]
+        LLM[LLM Service<br/>- LiteLLM<br/>- Intent Analysis<br/>- Response Generation<br/>- Validation]
     end
 
     %% Main processing flow (standard route)
@@ -81,9 +82,12 @@ graph TB
     ApiGateway -->|WebSocket| WebClient
 
     %% Infrastructure connections
+    IntentAnalyzer -.-> LLM
     ContextRetriever -.-> RedisCache
     ContextRetriever -.-> SqliteDb
     ContextRetriever -.-> MockServices
+    ResponseGenerator -.-> LLM
+    GuardrailValidator -.-> LLM
     GuardrailValidator -.-> SqliteDb
     ExecutionCoordinator -.-> MockServices
     ResponseAggregator -.-> SqliteDb
