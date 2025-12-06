@@ -75,6 +75,16 @@ docs = [
     "myst-parser>=2.0.0",
 ]
 
+ml-simple = [
+    "vaderSentiment>=3.3.2",
+]
+
+ml-full = [
+    "transformers>=4.21.0",
+    "torch>=1.12.0",
+    "tokenizers>=0.22.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/actormesh/actor-mesh-demo"
 Documentation = "https://github.com/actormesh/actor-mesh-demo/blob/main/README.md"

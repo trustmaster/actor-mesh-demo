@@ -5,6 +5,8 @@
 
 set -e  # Exit on any error
 
+DOCKER_API_VERSION=1.43
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'

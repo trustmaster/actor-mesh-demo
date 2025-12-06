@@ -28,13 +28,12 @@ import argparse
 import asyncio
 import json
 import logging
-import os
 import sys
 import time
 import webbrowser
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict
 
 import aiohttp
 import websockets
@@ -56,8 +55,8 @@ from actors.guardrail_validator import create_guardrail_validator
 from actors.intent_analyzer import create_intent_analyzer
 from actors.response_aggregator import ResponseAggregator
 from actors.response_generator import create_response_generator
-from actors.sentiment_analyzer import create_sentiment_analyzer
-from models.message import Message, MessagePayload, Route, StandardRoutes
+from actors.sentiment_config import create_sentiment_analyzer
+from models.message import MessagePayload
 from storage.redis_client_simple import init_simplified_redis
 from storage.sqlite_client import init_sqlite
 
@@ -190,10 +189,7 @@ class ComprehensiveActorMeshDemo:
 
     def setup_logging(self):
         """Setup comprehensive logging for the demo."""
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        )
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         self.logger = logging.getLogger("comprehensive_demo")
 
     def print_banner(self, title: str, subtitle: str = ""):
@@ -277,12 +273,12 @@ class ComprehensiveActorMeshDemo:
             # Initialize actors
             self.print_section("Initializing Core Actors")
             actors = {
-                'sentiment': await create_sentiment_analyzer(),
-                'intent': await create_intent_analyzer(),
-                'context': await create_context_retriever(),
-                'response': await create_response_generator(),
-                'guardrail': await create_guardrail_validator(),
-                'execution': await create_execution_coordinator(),
+                "sentiment": await create_sentiment_analyzer(),
+                "intent": await create_intent_analyzer(),
+                "context": await create_context_retriever(),
+                "response": await create_response_generator(),
+                "guardrail": await create_guardrail_validator(),
+                "execution": await create_execution_coordinator(),
             }
 
             for name, actor in actors.items():
@@ -302,10 +298,10 @@ class ComprehensiveActorMeshDemo:
 
                 # Process through pipeline
                 payload = MessagePayload(
-                    customer_email=scenario['customer_email'],
-                    customer_message=scenario['message'],
+                    customer_email=scenario["customer_email"],
+                    customer_message=scenario["message"],
                     session_id=f"demo-session-{i}",
-                    timestamp=datetime.now().isoformat()
+                    timestamp=datetime.now().isoformat(),
                 )
 
                 start_time = time.time()
@@ -337,34 +333,34 @@ class ComprehensiveActorMeshDemo:
         """Process a message through the complete actor pipeline."""
 
         # Sentiment Analysis
-        if 'sentiment' in actors and actors['sentiment']:
-            sentiment_result = await actors['sentiment'].analyze_sentiment(payload.customer_message)
-            payload.enrichments['sentiment'] = sentiment_result
+        if "sentiment" in actors and actors["sentiment"]:
+            sentiment_result = await actors["sentiment"].analyze_sentiment(payload.customer_message)
+            payload.enrichments["sentiment"] = sentiment_result
 
         # Intent Analysis
-        if 'intent' in actors and actors['intent']:
-            intent_result = await actors['intent'].analyze_intent(payload.customer_message)
-            payload.enrichments['intent'] = intent_result
+        if "intent" in actors and actors["intent"]:
+            intent_result = await actors["intent"].analyze_intent(payload.customer_message)
+            payload.enrichments["intent"] = intent_result
 
         # Context Retrieval
-        if 'context' in actors and actors['context']:
-            context_result = await actors['context'].retrieve_context(payload.customer_email)
-            payload.enrichments['context'] = context_result
+        if "context" in actors and actors["context"]:
+            context_result = await actors["context"].retrieve_context(payload.customer_email)
+            payload.enrichments["context"] = context_result
 
         # Response Generation
-        if 'response' in actors and actors['response']:
-            response_result = await actors['response'].generate_response(payload)
-            payload.enrichments['response'] = response_result
+        if "response" in actors and actors["response"]:
+            response_result = await actors["response"].generate_response(payload)
+            payload.enrichments["response"] = response_result
 
         # Guardrail Validation
-        if 'guardrail' in actors and actors['guardrail']:
-            guardrail_result = await actors['guardrail'].validate_response(payload)
-            payload.enrichments['guardrail'] = guardrail_result
+        if "guardrail" in actors and actors["guardrail"]:
+            guardrail_result = await actors["guardrail"].validate_response(payload)
+            payload.enrichments["guardrail"] = guardrail_result
 
         # Execution Coordination
-        if 'execution' in actors and actors['execution']:
-            execution_result = await actors['execution'].coordinate_execution(payload)
-            payload.enrichments['execution'] = execution_result
+        if "execution" in actors and actors["execution"]:
+            execution_result = await actors["execution"].coordinate_execution(payload)
+            payload.enrichments["execution"] = execution_result
 
         return payload
 
@@ -374,10 +370,10 @@ class ComprehensiveActorMeshDemo:
         enrichments = payload.enrichments
 
         # Sentiment results
-        if 'sentiment' in enrichments:
-            sentiment = enrichments['sentiment']
-            expected_sentiment = scenario.get('expected_sentiment', 'unknown')
-            actual_sentiment = sentiment.get('sentiment', 'unknown')
+        if "sentiment" in enrichments:
+            sentiment = enrichments["sentiment"]
+            expected_sentiment = scenario.get("expected_sentiment", "unknown")
+            actual_sentiment = sentiment.get("sentiment", "unknown")
 
             if actual_sentiment == expected_sentiment:
                 self.print_success(f"  Sentiment: {actual_sentiment} (✓ Expected: {expected_sentiment})")
@@ -385,11 +381,11 @@ class ComprehensiveActorMeshDemo:
                 self.print_warning(f"  Sentiment: {actual_sentiment} (Expected: {expected_sentiment})")
 
         # Intent results
-        if 'intent' in enrichments:
-            intent = enrichments['intent']
-            expected_intent = scenario.get('expected_intent', 'unknown')
-            actual_intent = intent.get('intent', 'unknown')
-            confidence = intent.get('confidence', 0)
+        if "intent" in enrichments:
+            intent = enrichments["intent"]
+            expected_intent = scenario.get("expected_intent", "unknown")
+            actual_intent = intent.get("intent", "unknown")
+            confidence = intent.get("confidence", 0)
 
             if actual_intent == expected_intent:
                 self.print_success(f"  Intent: {actual_intent} ({confidence:.2f}) (✓ Expected: {expected_intent})")
@@ -397,16 +393,16 @@ class ComprehensiveActorMeshDemo:
                 self.print_warning(f"  Intent: {actual_intent} ({confidence:.2f}) (Expected: {expected_intent})")
 
         # Context results
-        if 'context' in enrichments:
-            context = enrichments['context']
-            customer_info = context.get('customer', {})
-            orders_count = len(context.get('orders', []))
+        if "context" in enrichments:
+            context = enrichments["context"]
+            customer_info = context.get("customer", {})
+            orders_count = len(context.get("orders", []))
             self.print_info(f"  Context: Customer tier {customer_info.get('tier', 'N/A')}, {orders_count} orders")
 
         # Response results
-        if 'response' in enrichments:
-            response = enrichments['response']
-            response_text = response.get('response', 'No response generated')
+        if "response" in enrichments:
+            response = enrichments["response"]
+            response_text = response.get("response", "No response generated")
             self.print_info(f"  Response: {response_text[:100]}...")
 
     async def demo_smart_routing(self) -> bool:
@@ -435,11 +431,11 @@ class ComprehensiveActorMeshDemo:
 
                 # Create enriched message
                 payload = MessagePayload(
-                    customer_email=scenario['customer_email'],
-                    customer_message=scenario['customer_message'],
+                    customer_email=scenario["customer_email"],
+                    customer_message=scenario["customer_message"],
                     session_id=f"routing-demo-{i}",
                     timestamp=datetime.now().isoformat(),
-                    enrichments=scenario['enrichments']
+                    enrichments=scenario["enrichments"],
                 )
 
                 # Test decision routing
@@ -467,18 +463,18 @@ class ComprehensiveActorMeshDemo:
         """Simulate a routing decision."""
 
         enrichments = payload.enrichments
-        sentiment = enrichments.get('sentiment', {})
-        intent_data = enrichments.get('intent', {})
-        context = enrichments.get('context', {})
+        sentiment = enrichments.get("sentiment", {})
+        intent_data = enrichments.get("intent", {})
+        context = enrichments.get("context", {})
 
         # Simulate decision logic
-        urgency = sentiment.get('urgency', 'low')
-        confidence = intent_data.get('confidence', 1.0)
-        customer_tier = context.get('customer', {}).get('tier', 'Standard')
+        urgency = sentiment.get("urgency", "low")
+        confidence = intent_data.get("confidence", 1.0)
+        customer_tier = context.get("customer", {}).get("tier", "Standard")
 
-        if urgency == 'critical' or customer_tier == 'VIP':
+        if urgency == "critical" or customer_tier == "VIP":
             return "escalation.human_agent"
-        elif urgency == 'high' and confidence > 0.8:
+        elif urgency == "high" and confidence > 0.8:
             return "processing.execution_coordinator"
         elif confidence < 0.5:
             return "escalation.human_review"
@@ -578,7 +574,7 @@ class ComprehensiveActorMeshDemo:
                 test_message = {
                     "type": "customer_message",
                     "message": "Hello, this is a WebSocket test message!",
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now().isoformat(),
                 }
 
                 await websocket.send(json.dumps(test_message))
@@ -606,7 +602,7 @@ class ComprehensiveActorMeshDemo:
                 test_payload = {
                     "customer_email": "api.test@example.com",
                     "message": "This is an HTTP API test message",
-                    "session_id": "api-test-session"
+                    "session_id": "api-test-session",
                 }
 
                 async with session.post(f"{self.api_base_url}/api/message", json=test_payload) as response:
@@ -668,12 +664,12 @@ class ComprehensiveActorMeshDemo:
                 customer_email="test@example.com",
                 customer_message="Test message for pipeline validation",
                 session_id="integration-test",
-                timestamp=datetime.now().isoformat()
+                timestamp=datetime.now().isoformat(),
             )
 
             actors = {
-                'sentiment': await create_sentiment_analyzer(),
-                'intent': await create_intent_analyzer(),
+                "sentiment": await create_sentiment_analyzer(),
+                "intent": await create_intent_analyzer(),
             }
 
             if all(actors.values()):
@@ -757,8 +753,9 @@ async def main():
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Actor Mesh Demo - Comprehensive System Demonstration")
-    parser.add_argument("--mode", choices=["all", "actors", "routing", "web", "integration"],
-                       default="all", help="Demonstration mode")
+    parser.add_argument(
+        "--mode", choices=["all", "actors", "routing", "web", "integration"], default="all", help="Demonstration mode"
+    )
     parser.add_argument("--scenario", help="Specific scenario to run")
     parser.add_argument("--api-url", default="http://localhost:8000", help="API Gateway URL")
     parser.add_argument("--ws-url", default="ws://localhost:8000", help="WebSocket URL")
@@ -768,8 +765,9 @@ async def main():
     # Initialize demo
     demo = ComprehensiveActorMeshDemo(api_base_url=args.api_url, ws_base_url=args.ws_url)
 
-    demo.print_banner("🎭 ACTOR MESH COMPREHENSIVE DEMONSTRATION",
-                     "E-commerce Support AI Agent - All System Capabilities")
+    demo.print_banner(
+        "🎭 ACTOR MESH COMPREHENSIVE DEMONSTRATION", "E-commerce Support AI Agent - All System Capabilities"
+    )
 
     success = True
 
