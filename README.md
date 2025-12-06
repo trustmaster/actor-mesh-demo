@@ -81,10 +81,9 @@ graph TB
     ApiGateway -->|WebSocket| WebClient
 
     %% Infrastructure connections
-    SentimentAnalyzer -.-> RedisCache
-    IntentAnalyzer -.-> RedisCache
+    ContextRetriever -.-> RedisCache
+    ContextRetriever -.-> SqliteDb
     ContextRetriever -.-> MockServices
-    ResponseGenerator -.-> RedisCache
     GuardrailValidator -.-> SqliteDb
     ExecutionCoordinator -.-> MockServices
     ResponseAggregator -.-> SqliteDb
