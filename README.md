@@ -74,15 +74,7 @@ graph TB
     
     %% Escalation router paths
     EscalationRouter -->|Fallback/handoff| ResponseAggregator
-    EscalationRouter -.->|Retry| SentimentAnalyzer
-    EscalationRouter -.->|Retry| IntentAnalyzer
-    EscalationRouter -.->|Retry| ContextRetriever
-    
-    %% Error handling (any actor can error)
-    SentimentAnalyzer -.->|Error| EscalationRouter
-    IntentAnalyzer -.->|Error| EscalationRouter
-    ContextRetriever -.->|Error| EscalationRouter
-    ResponseGenerator -.->|Error| EscalationRouter
+    EscalationRouter -.->|Retry failed step| SentimentAnalyzer
     
     %% Response back to client
     ResponseAggregator -->|Final response| ApiGateway
@@ -97,6 +89,8 @@ graph TB
     ExecutionCoordinator -.-> MockServices
     ResponseAggregator -.-> SqliteDb
 ```
+
+> **Note:** The **EscalationRouter** serves as the error handler for all actors in the system. Any actor can send errors to the EscalationRouter, which handles retries, fallback responses, and human escalation. The retry connection shown above represents this capability to retry any failed processing step.
 
 ### 🧩 System Components
 
