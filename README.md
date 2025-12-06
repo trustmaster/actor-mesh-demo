@@ -28,22 +28,22 @@ graph TB
         ApiGateway[API Gateway<br/>FastAPI<br/>- HTTP Endpoints<br/>- WebSocket<br/>- NATS Bridge]
     end
 
-    subgraph "Smart Router Layer"
-        DecisionRouter[DecisionRouter]
-        EscalationRouter[EscalationRouter]
+    subgraph "Processor Actor Layer"
+        SentimentAnalyzer[SentimentAnalyzer<br/>Enriches: sentiment]
+        IntentAnalyzer[IntentAnalyzer<br/>Enriches: intent]
+        ContextRetriever[ContextRetriever<br/>Enriches: context]
+        ResponseGenerator[ResponseGenerator<br/>Enriches: response]
+        GuardrailValidator[GuardrailValidator<br/>Enriches: guardrail_check]
+        ExecutionCoordinator[ExecutionCoordinator<br/>Enriches: execution_result]
     end
 
-    subgraph "Processor Actor Layer"
-        SentimentAnalyzer[SentimentAnalyzer]
-        IntentAnalyzer[IntentAnalyzer]
-        ContextRetriever[ContextRetriever]
-        ResponseGenerator[ResponseGenerator]
-        GuardrailValidator[GuardrailValidator]
-        ExecutionCoordinator[ExecutionCoordinator]
+    subgraph "Smart Router Layer"
+        DecisionRouter[DecisionRouter<br/>Routes based on enrichments]
+        EscalationRouter[EscalationRouter<br/>Handles errors & escalations]
     end
 
     subgraph "Exit Point Layer"
-        ResponseAggregator[ResponseAggregator]
+        ResponseAggregator[ResponseAggregator<br/>Returns final response]
     end
 
     subgraph "Storage & Services Layer"
@@ -52,24 +52,43 @@ graph TB
         MockServices[Mock Services<br/>- Customer API<br/>- Orders API<br/>- Delivery Tracking API]
     end
 
-    WebClient --> ApiGateway
-    ApiGateway --> DecisionRouter
-    ApiGateway --> EscalationRouter
-    DecisionRouter --> SentimentAnalyzer
-    DecisionRouter --> IntentAnalyzer
-    DecisionRouter --> ContextRetriever
-    EscalationRouter --> SentimentAnalyzer
-    EscalationRouter --> IntentAnalyzer
-    EscalationRouter --> ContextRetriever
-    SentimentAnalyzer --> ResponseGenerator
-    IntentAnalyzer --> ResponseGenerator
-    ContextRetriever --> ResponseGenerator
-    ResponseGenerator --> GuardrailValidator
-    GuardrailValidator --> ExecutionCoordinator
-    ExecutionCoordinator --> ResponseAggregator
-    ResponseAggregator --> ApiGateway
-    ApiGateway --> WebClient
+    %% Main processing flow (standard route)
+    WebClient -->|WebSocket| ApiGateway
+    ApiGateway -->|1. Initial message| SentimentAnalyzer
+    SentimentAnalyzer -->|2. + sentiment| IntentAnalyzer
+    IntentAnalyzer -->|3. + intent| ContextRetriever
+    ContextRetriever -->|4. + context| DecisionRouter
+    
+    %% Decision router routing options
+    DecisionRouter -->|5a. Normal flow| ResponseGenerator
+    DecisionRouter -->|5b. Action needed| ExecutionCoordinator
+    DecisionRouter -.->|5c. Critical escalation| EscalationRouter
+    
+    %% Execution coordinator path
+    ExecutionCoordinator -->|6. After action| ResponseGenerator
+    
+    %% Response generation path
+    ResponseGenerator -->|7. + response| GuardrailValidator
+    GuardrailValidator -->|8. Passed| ResponseAggregator
+    GuardrailValidator -.->|8. Failed| EscalationRouter
+    
+    %% Escalation router paths
+    EscalationRouter -->|Fallback/handoff| ResponseAggregator
+    EscalationRouter -.->|Retry| SentimentAnalyzer
+    EscalationRouter -.->|Retry| IntentAnalyzer
+    EscalationRouter -.->|Retry| ContextRetriever
+    
+    %% Error handling (any actor can error)
+    SentimentAnalyzer -.->|Error| EscalationRouter
+    IntentAnalyzer -.->|Error| EscalationRouter
+    ContextRetriever -.->|Error| EscalationRouter
+    ResponseGenerator -.->|Error| EscalationRouter
+    
+    %% Response back to client
+    ResponseAggregator -->|Final response| ApiGateway
+    ApiGateway -->|WebSocket| WebClient
 
+    %% Infrastructure connections
     SentimentAnalyzer -.-> RedisCache
     IntentAnalyzer -.-> RedisCache
     ContextRetriever -.-> MockServices
@@ -81,20 +100,20 @@ graph TB
 
 ### 🧩 System Components
 
-#### **Web Interface** (Phase 6)
+#### **Web Interface**
 - **Interactive Chat Widgets**: Responsive HTML/CSS/JavaScript with accessibility compliance and mobile support
 - **WebSocket Communication**: Real-time bidirectional messaging with connection management and reconnection logic
 - **Customer Experience**: Professional interface with typing indicators, message history, and error handling
 
-#### **Entry/Exit Points** (Phase 5)
+#### **Entry/Exit Points**
 - **API Gateway**: FastAPI HTTP/WebSocket-to-NATS bridge with request correlation and comprehensive health monitoring
 - **Response Aggregator**: Message collection, enrichment summary, and final response delivery with error handling
 
-#### **Smart Routers** (Phase 4)
+#### **Smart Routers**
 - **Decision Router**: Intelligent message routing based on sentiment analysis, intent confidence, and customer context
 - **Escalation Router**: Advanced error handling, human handoff logic, retry mechanisms, and fallback responses
 
-#### **Processor Actors** (Phase 3)
+#### **Processor Actors**
 - **Sentiment Analyzer**: Emotion detection, urgency assessment, and complaint identification using rule-based analysis
 - **Intent Analyzer**: LLM-powered intent classification with entity extraction and confidence scoring
 - **Context Retriever**: Multi-API data aggregation with intelligent caching and customer profile assembly
@@ -102,7 +121,7 @@ graph TB
 - **Guardrail Validator**: Comprehensive safety and policy validation with content filtering and compliance checks
 - **Execution Coordinator**: Action execution engine with 16+ API integrations for orders, refunds, and escalations
 
-#### **Infrastructure** (Phases 1-2)
+#### **Infrastructure**
 - **Message Protocol**: Advanced NATS JetStream routing with error handling, retry logic, and progression tracking
 - **Storage Systems**: Redis for high-performance caching and SQLite for persistent conversation history and analytics
 - **Mock Services**: Production-ready Customer, Orders, and Delivery Tracking APIs with realistic data simulation
